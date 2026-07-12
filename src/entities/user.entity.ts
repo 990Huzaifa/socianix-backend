@@ -9,6 +9,7 @@ import {
 import { SocialAccount } from './social-account.entity';
 import { Post } from './post.entity';
 import { Activity } from './activity.entity';
+import { PasswordResetToken } from './password-reset-token.entity';
 
 @Entity('users')
 export class User {
@@ -53,6 +54,9 @@ export class User {
 
   @OneToMany(() => Activity, (activity) => activity.user)
   activities: Activity[];
+
+  @OneToMany(() => PasswordResetToken, (token) => token.user)
+  passwordResetTokens: PasswordResetToken[];
 
   @CreateDateColumn()
   createdAt: Date;

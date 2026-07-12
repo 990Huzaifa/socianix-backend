@@ -16,3 +16,7 @@ export {
 } from './post-platform.entity';
 export { Admin, AdminRole, AdminStatus } from './admin.entity';
 export { Activity, ActivityActorType } from './activity.entity';
+export {
+  PasswordResetToken,
+  PasswordResetTokenType,
+} from './password-reset-token.entity';
