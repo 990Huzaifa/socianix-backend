@@ -1,10 +1,20 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ConnectQueryDto } from '../connect/dto/connect-query.dto';
 import type { OAuthCallbackQuery } from '../connect/dto/oauth-callback.dto';
+import { User } from '../entities/user.entity';
 import { ConnectService } from '../services/connect.service';
 
 @Controller('oauth')
 export class ConnectController {
   constructor(private readonly connectService: ConnectService) {}
+
+  @Get('connect')
+  @UseGuards(JwtAuthGuard)
+  connect(@Query() query: ConnectQueryDto, @CurrentUser() user: User) {
+    return this.connectService.getAuthorizationUrl(query.platform, user.id);
+  }
 
   @Get('google/callback')
   googleCallback(@Query() query: OAuthCallbackQuery) {

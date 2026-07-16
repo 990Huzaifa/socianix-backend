@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { HttpService } from '@nestjs/axios';
+import { JwtService } from '@nestjs/jwt';
+import { randomUUID } from 'crypto';
 import { OAuthCallbackQuery } from '../connect/dto/oauth-callback.dto';
 import { ConnectPlatform } from '../connect/connect-platform.type';
 
@@ -9,9 +10,22 @@ export class ConnectService {
   private readonly logger = new Logger(ConnectService.name);
 
   constructor(
-    private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
   ) {}
+
+  getAuthorizationUrl(platform: ConnectPlatform, userId: string) {
+    if (platform !== 'google') {
+      throw new BadRequestException(
+        `${platform} connection is not available yet`,
+      );
+    }
+
+    return {
+      platform,
+      authorizationUrl: this.getGoogleAuthorizationUrl(userId),
+    };
+  }
 
   async handleCallback(platform: ConnectPlatform, query: OAuthCallbackQuery) {
     if (query.error) {
@@ -49,6 +63,43 @@ export class ConnectService {
     // TODO: exchange code for tokens using GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET,
     // fetch profile, then upsert social account for the user resolved from state.
     return this.callbackAck('google', code, state);
+  }
+
+  private getGoogleAuthorizationUrl(userId: string): string {
+    const clientId =
+      this.configService.get<string>('GOOGLE_CLIENT_ID') ??
+      this.configService.getOrThrow<string>('google_client_id');
+    const redirectUri =
+      this.configService.get<string>('GOOGLE_REDIRECT_URI') ??
+      `${this.configService.getOrThrow<string>('APP_URL').replace(/\/$/, '')}/oauth/google/callback`;
+    const scopes = (
+      this.configService.get<string>('GOOGLE_SCOPES') ??
+      'openid email profile'
+    )
+      .split(/[\s,]+/)
+      .filter(Boolean);
+    const state = this.jwtService.sign(
+      {
+        sub: userId,
+        platform: 'google',
+        purpose: 'social-connect',
+        nonce: randomUUID(),
+      },
+      { expiresIn: '10m' },
+    );
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: scopes.join(' '),
+      access_type: 'offline',
+      prompt: 'consent',
+      include_granted_scopes: 'true',
+      state,
+    });
+
+    return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
   }
 
   private async handleMetaCallback(code: string, state?: string) {
