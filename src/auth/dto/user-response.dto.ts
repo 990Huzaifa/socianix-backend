@@ -33,6 +33,9 @@ export class UserResponseDto {
   appVersion?: string | null;
 
   @Expose()
+  isEmailVerified: boolean;
+
+  @Expose()
   createdAt: Date;
 
   @Expose()

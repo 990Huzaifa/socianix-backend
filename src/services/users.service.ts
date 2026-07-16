@@ -24,7 +24,10 @@ export class UsersService {
   ) {}
 
   async create(data: CreateUserData): Promise<User> {
-    const user = this.usersRepository.create(data);
+    const user = this.usersRepository.create({
+      ...data,
+      isEmailVerified: false,
+    });
     return this.usersRepository.save(user);
   }
 
@@ -46,5 +49,10 @@ export class UsersService {
 
   async updatePassword(userId: string, hashedPassword: string): Promise<void> {
     await this.usersRepository.update(userId, { password: hashedPassword });
+  }
+
+  async markEmailVerified(userId: string): Promise<User> {
+    await this.usersRepository.update(userId, { isEmailVerified: true });
+    return this.findByIdOrFail(userId);
   }
 }

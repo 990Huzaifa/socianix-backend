@@ -46,6 +46,9 @@ export class User {
   @Column({ type: 'varchar', nullable: true })
   appVersion?: string | null;
 
+  @Column({ default: false })
+  isEmailVerified: boolean;
+
   @OneToMany(() => SocialAccount, (account) => account.user)
   socialAccounts: SocialAccount[];
 

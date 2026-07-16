@@ -10,6 +10,7 @@ import { User } from './user.entity';
 
 export enum PasswordResetTokenType {
   FORGOT_PASSWORD = 'forgotPassword',
+  EMAIL_VERIFICATION = 'emailVerification',
 }
 
 @Entity('password_reset_tokens')

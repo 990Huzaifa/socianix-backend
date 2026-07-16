@@ -13,6 +13,7 @@ import { LoginDto } from '../auth/dto/login.dto';
 import { RegisterDto } from '../auth/dto/register.dto';
 import { ResendOtpDto } from '../auth/dto/resend-otp.dto';
 import { ResetPasswordDto } from '../auth/dto/reset-password.dto';
+import { VerifyEmailDto } from '../auth/dto/verify-email.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { User } from '../entities/user.entity';
 import { AuthService } from '../services/auth.service';
@@ -24,6 +25,18 @@ export class AuthController {
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
+  }
+
+  @Post('verify-email')
+  @HttpCode(HttpStatus.OK)
+  verifyEmail(@Body() dto: VerifyEmailDto) {
+    return this.authService.verifyEmail(dto);
+  }
+
+  @Post('resend-verification')
+  @HttpCode(HttpStatus.OK)
+  resendVerification(@Body() dto: ResendOtpDto) {
+    return this.authService.resendVerification(dto);
   }
 
   @Post('login')

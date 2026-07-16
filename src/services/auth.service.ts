@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   UnauthorizedException,
@@ -15,6 +16,7 @@ import { RegisterDto } from '../auth/dto/register.dto';
 import { ResendOtpDto } from '../auth/dto/resend-otp.dto';
 import { ResetPasswordDto } from '../auth/dto/reset-password.dto';
 import { UserResponseDto } from '../auth/dto/user-response.dto';
+import { VerifyEmailDto } from '../auth/dto/verify-email.dto';
 import { JwtPayload } from '../auth/types/jwt-payload.type';
 import { MailService } from './mail.service';
 import { PasswordResetTokenService } from './password-reset-token.service';
@@ -42,7 +44,81 @@ export class AuthService {
       password: hashedPassword,
     });
 
-    return this.buildAuthResponse(user);
+    const code = await this.passwordResetTokenService.createToken(
+      user,
+      PasswordResetTokenType.EMAIL_VERIFICATION,
+    );
+    await this.mailService.sendEmailVerification(user.email, user.name, code);
+
+    const response: {
+      message: string;
+      email: string;
+      otp?: string;
+    } = {
+      message:
+        'Registration successful. Please verify your email with the OTP sent to your inbox.',
+      email: user.email,
+    };
+
+    if (this.configService.get('NODE_ENV') !== 'production') {
+      response.otp = code;
+    }
+
+    return response;
+  }
+
+  async verifyEmail(dto: VerifyEmailDto) {
+    const user = await this.usersService.findByEmail(dto.email);
+    if (!user) {
+      throw new BadRequestException('Invalid or expired OTP');
+    }
+
+    if (user.isEmailVerified) {
+      throw new BadRequestException('Email is already verified');
+    }
+
+    const token = await this.passwordResetTokenService.verifyToken(
+      user.id,
+      dto.otp,
+      PasswordResetTokenType.EMAIL_VERIFICATION,
+    );
+
+    const verifiedUser = await this.usersService.markEmailVerified(user.id);
+    await this.passwordResetTokenService.markUsed(token);
+    await this.passwordResetTokenService.invalidateActiveTokens(
+      user.id,
+      PasswordResetTokenType.EMAIL_VERIFICATION,
+    );
+
+    await this.mailService.sendWelcome(verifiedUser.email, verifiedUser.name);
+
+    return this.buildAuthResponse(verifiedUser);
+  }
+
+  async resendVerification(dto: ResendOtpDto) {
+    const genericMessage =
+      'If an unverified account exists for this email, a new verification OTP has been sent';
+
+    const user = await this.usersService.findByEmail(dto.email);
+    if (!user || user.isEmailVerified) {
+      return { message: genericMessage };
+    }
+
+    const code = await this.passwordResetTokenService.createToken(
+      user,
+      PasswordResetTokenType.EMAIL_VERIFICATION,
+    );
+    await this.mailService.sendEmailVerification(user.email, user.name, code);
+
+    const response: { message: string; otp?: string } = {
+      message: genericMessage,
+    };
+
+    if (this.configService.get('NODE_ENV') !== 'production') {
+      response.otp = code;
+    }
+
+    return response;
   }
 
   async login(dto: LoginDto) {
@@ -54,6 +130,12 @@ export class AuthService {
     const isPasswordValid = await bcrypt.compare(dto.password, user.password);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid email or password');
+    }
+
+    if (!user.isEmailVerified) {
+      throw new UnauthorizedException(
+        'Please verify your email before logging in',
+      );
     }
 
     return this.buildAuthResponse(user);
@@ -111,7 +193,7 @@ export class AuthService {
       user,
       PasswordResetTokenType.FORGOT_PASSWORD,
     );
-    await this.mailService.sendPasswordResetOtp(user.email, code);
+    await this.mailService.sendPasswordResetOtp(user.email, user.name, code);
 
     const response: { message: string; otp?: string } = {
       message: genericMessage,

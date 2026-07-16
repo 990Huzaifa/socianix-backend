@@ -70,7 +70,7 @@ export class PasswordResetTokenService {
     await this.passwordResetTokenRepository.save(token);
 
     if (this.configService.get('NODE_ENV') !== 'production') {
-      this.logger.debug(`Password reset token for ${user.email}: ${code}`);
+      this.logger.debug(`${type} token for ${user.email}: ${code}`);
     }
 
     return code;
