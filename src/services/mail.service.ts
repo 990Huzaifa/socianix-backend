@@ -78,6 +78,52 @@ export class MailService {
         );
     }
 
+    async sendContactReceived(
+        toEmail: string,
+        name: string,
+        inquiry: string,
+    ): Promise<void> {
+        const html = this.renderTemplate('contact-received', {
+            name,
+            inquiry,
+            appName: this.appName(),
+            logoSrc: this.logoSrc(),
+            year: new Date().getFullYear(),
+        });
+
+        await this.sendEmail(
+            toEmail,
+            `We received your ${this.appName()} inquiry`,
+            html,
+            'info',
+        );
+    }
+
+    async sendContactOwnerNotify(lead: {
+        name: string;
+        email: string;
+        inquiry: string;
+        message: string;
+    }): Promise<void> {
+        const ownerEmail = this.configService.getOrThrow<string>('OWNER_EMAIL');
+        const html = this.renderTemplate('contact-owner-notify', {
+            name: lead.name,
+            email: lead.email,
+            inquiry: lead.inquiry,
+            message: lead.message,
+            appName: this.appName(),
+            logoSrc: this.logoSrc(),
+            year: new Date().getFullYear(),
+        });
+
+        await this.sendEmail(
+            ownerEmail,
+            `New contact inquiry: ${lead.inquiry}`,
+            html,
+            'support',
+        );
+    }
+
     async sendEmail(
         toEmail: string,
         subject: string,
