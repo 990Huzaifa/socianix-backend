@@ -9,6 +9,7 @@ import { buildDatabaseOptions } from './config/database.config';
 import {
   AppController,
   AuthController,
+  ConnectController,
   ContactController,
 } from './controllers';
 import { Lead } from './entities/lead.entity';
@@ -17,6 +18,7 @@ import { User } from './entities/user.entity';
 import {
   AppService,
   AuthService,
+  ConnectService,
   ContactService,
   MailService,
   PasswordResetTokenService,
@@ -49,12 +51,18 @@ import {
       }),
     }),
   ],
-  controllers: [AppController, AuthController, ContactController],
+  controllers: [
+    AppController,
+    AuthController,
+    ConnectController,
+    ContactController,
+  ],
   providers: [
     AppService,
     AuthService,
     UsersService,
     MailService,
+    ConnectService,
     ContactService,
     PasswordResetTokenService,
     JwtStrategy,
