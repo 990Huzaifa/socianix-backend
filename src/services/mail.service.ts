@@ -1,157 +1,190 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as Handlebars from 'handlebars';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { readFile } from 'fs/promises';
-import { join } from 'path';
-import * as nodemailer from 'nodemailer';
-import type { Transporter } from 'nodemailer';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
+import FormData from 'form-data';
 
-type TemplateName =
-  | 'email-verification'
-  | 'welcome'
-  | 'forgot-password';
-
-type TemplateVars = Record<string, string | number>;
+export type MailFrom = 'noreply' | 'support' | 'info';
 
 @Injectable()
-export class MailService implements OnModuleInit {
-  private readonly logger = new Logger(MailService.name);
-  private transporter: Transporter | null = null;
-  private readonly templatesDir = join(__dirname, '..', 'mail', 'templates');
+export class MailService {
+    private readonly logger = new Logger(MailService.name);
+    private readonly mailDir = this.resolveMailDir();
+    private readonly templatesDir = path.join(this.mailDir, 'templates');
+    private readonly assetsDir = path.join(this.mailDir, 'assets');
+    private cachedLogoSrc: string | null | undefined;
 
-  constructor(private readonly configService: ConfigService) {}
+    constructor(
+        private readonly httpService: HttpService,
+        private readonly configService: ConfigService,
+    ) { }
 
-  async onModuleInit() {
-    const host = this.configService.get<string>('MAIL_HOST');
-    if (!host) {
-      this.logger.warn(
-        'MAIL_HOST is not set — emails will be logged instead of sent',
-      );
-      return;
+    async sendEmailVerification(
+        toEmail: string,
+        name: string,
+        otp: string,
+    ): Promise<void> {
+        const html = this.renderTemplate('verify-email', {
+            name,
+            otp,
+            logoSrc: this.logoSrc(),
+            year: new Date().getFullYear(),
+        });
+
+        await this.sendEmail(
+            toEmail,
+            `Verify your ${this.appName()} email`,
+            html,
+            'noreply',
+        );
     }
 
-    this.transporter = nodemailer.createTransport({
-      host,
-      port: Number(this.configService.get('MAIL_PORT') ?? 587),
-      secure: this.configService.get('MAIL_SECURE') === 'true',
-      auth: {
-        user: this.configService.getOrThrow<string>('MAIL_USER'),
-        pass: this.configService.getOrThrow<string>('MAIL_PASSWORD'),
-      },
-    });
+    async sendWelcome(toEmail: string, name: string): Promise<void> {
+        const html = this.renderTemplate('welcome-email', {
+            name,
+            appName: this.appName(),
+            logoSrc: this.logoSrc(),
+            year: new Date().getFullYear(),
+        });
 
-    try {
-      await this.transporter.verify();
-      this.logger.log('Mail transporter ready');
-    } catch (error) {
-      this.logger.error('Mail transporter verification failed', error);
-    }
-  }
-
-  async sendEmailVerification(
-    email: string,
-    name: string,
-    otp: string,
-  ): Promise<void> {
-    const expiresInMinutes = this.getOtpExpiryMinutes();
-    const html = await this.renderTemplate('email-verification', {
-      name,
-      otp,
-      expiresInMinutes,
-      ...this.commonVars(),
-    });
-
-    await this.sendMail({
-      to: email,
-      subject: `Verify your ${this.appName()} email`,
-      html,
-      text: `Hi ${name}, your ${this.appName()} verification code is ${otp}. It expires in ${expiresInMinutes} minutes.`,
-    });
-  }
-
-  async sendWelcome(email: string, name: string): Promise<void> {
-    const html = await this.renderTemplate('welcome', {
-      name,
-      ...this.commonVars(),
-    });
-
-    await this.sendMail({
-      to: email,
-      subject: `Welcome to ${this.appName()}`,
-      html,
-      text: `Hi ${name}, welcome to ${this.appName()}! Your account is ready.`,
-    });
-  }
-
-  async sendPasswordResetOtp(
-    email: string,
-    name: string,
-    otp: string,
-  ): Promise<void> {
-    const expiresInMinutes = this.getOtpExpiryMinutes();
-    const html = await this.renderTemplate('forgot-password', {
-      name,
-      otp,
-      expiresInMinutes,
-      ...this.commonVars(),
-    });
-
-    await this.sendMail({
-      to: email,
-      subject: `Reset your ${this.appName()} password`,
-      html,
-      text: `Hi ${name}, your ${this.appName()} password reset code is ${otp}. It expires in ${expiresInMinutes} minutes.`,
-    });
-  }
-
-  private async sendMail(options: {
-    to: string;
-    subject: string;
-    html: string;
-    text: string;
-  }): Promise<void> {
-    if (!this.transporter) {
-      this.logger.log(
-        `[mail:dev] to=${options.to} subject="${options.subject}" text=${options.text}`,
-      );
-      return;
+        await this.sendEmail(
+            toEmail,
+            `Welcome to ${this.appName()}`,
+            html,
+            'info',
+        );
     }
 
-    await this.transporter.sendMail({
-      from: this.configService.getOrThrow<string>('MAIL_FROM'),
-      to: options.to,
-      subject: options.subject,
-      html: options.html,
-      text: options.text,
-    });
-  }
+    async sendPasswordResetOtp(
+        toEmail: string,
+        name: string,
+        otp: string,
+    ): Promise<void> {
+        const html = this.renderTemplate('reset-password-email', {
+            name,
+            otp,
+            logoSrc: this.logoSrc(),
+            year: new Date().getFullYear(),
+        });
 
-  private async renderTemplate(
-    name: TemplateName,
-    vars: TemplateVars,
-  ): Promise<string> {
-    const filePath = join(this.templatesDir, `${name}.html`);
-    let html = await readFile(filePath, 'utf8');
-
-    for (const [key, value] of Object.entries(vars)) {
-      html = html.replaceAll(`{{${key}}}`, String(value));
+        await this.sendEmail(
+            toEmail,
+            `Reset your ${this.appName()} password`,
+            html,
+            'support',
+        );
     }
 
-    return html;
-  }
+    async sendEmail(
+        toEmail: string,
+        subject: string,
+        bodyHtml: string,
+        from: MailFrom = 'noreply',
+    ): Promise<void> {
+        const url = this.configService.get<string>('MAIL_SERVICE_URL');
+        const apiKey = this.configService.get<string>('MAIL_API_KEY');
+        const masterUser = this.configService.get<string>(
+            'MAIL_SERVICE_MASTER_USER',
+        );
+        const fromEmail = this.resolveFromEmail(from);
 
-  private commonVars(): TemplateVars {
-    return {
-      appName: this.appName(),
-      appUrl: this.configService.get<string>('APP_URL') ?? 'http://localhost:3000',
-      year: new Date().getFullYear(),
-    };
-  }
+        if (!url || !apiKey || !masterUser) {
+            this.logger.log(
+                `[mail:dev] from=${fromEmail} to=${toEmail} subject="${subject}"`,
+            );
+            return;
+        }
 
-  private appName(): string {
-    return this.configService.get<string>('APP_NAME') ?? 'Socianix';
-  }
+        const formData = new FormData();
+        formData.append('master_user', masterUser);
+        formData.append('from_email', fromEmail);
+        formData.append('to_email', toEmail);
+        formData.append('subject', subject);
+        formData.append('body_html', bodyHtml);
 
-  private getOtpExpiryMinutes(): number {
-    return Number(this.configService.get('OTP_EXPIRES_IN_MINUTES') ?? 10);
-  }
+        await firstValueFrom(
+            this.httpService.post(url, formData, {
+                headers: {
+                    ...formData.getHeaders(),
+                    'x-api-key': apiKey,
+                },
+            }),
+        );
+    }
+
+    private resolveFromEmail(from: MailFrom): string {
+        const envKey = {
+            noreply: 'MAIL_FROM_NOREPLY',
+            support: 'MAIL_FROM_SUPPORT',
+            info: 'MAIL_FROM_INFO',
+        }[from];
+
+        return this.configService.getOrThrow<string>(envKey);
+    }
+
+    private renderTemplate(
+        templateName: string,
+        data: Record<string, unknown>,
+    ): string {
+        const filePath = path.join(this.templatesDir, `${templateName}.hbs`);
+        const source = fs.readFileSync(filePath, 'utf8');
+        return Handlebars.compile(source)(data);
+    }
+
+    private logoSrc(): string | null {
+        if (this.cachedLogoSrc !== undefined) {
+            return this.cachedLogoSrc;
+        }
+
+        const candidates = ['logo.png', 'logo.jpg', 'logo.jpeg', 'logo.webp', 'logo.svg'];
+
+        for (const filename of candidates) {
+            const filePath = path.join(this.assetsDir, filename);
+            if (!fs.existsSync(filePath)) {
+                continue;
+            }
+
+            const buffer = fs.readFileSync(filePath);
+            const mime = this.mimeType(filename);
+            this.cachedLogoSrc = `data:${mime};base64,${buffer.toString('base64')}`;
+            return this.cachedLogoSrc;
+        }
+
+        this.logger.warn(
+            `No logo found in ${this.assetsDir} (expected logo.png)`,
+        );
+        this.cachedLogoSrc = null;
+        return null;
+    }
+
+    private mimeType(filename: string): string {
+        const ext = path.extname(filename).toLowerCase();
+        switch (ext) {
+            case '.jpg':
+            case '.jpeg':
+                return 'image/jpeg';
+            case '.webp':
+                return 'image/webp';
+            case '.svg':
+                return 'image/svg+xml';
+            default:
+                return 'image/png';
+        }
+    }
+
+    private resolveMailDir(): string {
+        const fromDist = path.join(__dirname, '..', 'mail');
+        if (fs.existsSync(fromDist)) {
+            return fromDist;
+        }
+
+        return path.join(process.cwd(), 'src', 'mail');
+    }
+
+    private appName(): string {
+        return this.configService.get<string>('APP_NAME') ?? 'Socianix';
+    }
 }

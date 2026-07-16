@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { HttpModule } from '@nestjs/axios';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -22,6 +23,7 @@ import {
       isGlobal: true,
       envFilePath: '.env',
     }),
+    HttpModule,
     TypeOrmModule.forRootAsync({
       useFactory: () => ({
         ...buildDatabaseOptions(),
