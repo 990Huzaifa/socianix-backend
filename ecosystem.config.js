@@ -2,7 +2,7 @@ module.exports = {
     apps : [
         {
             name: 'api-socialsyncc',
-            script: 'server.js',
+            script: './dist/server.js',
             port: 3000
         }
     ]
