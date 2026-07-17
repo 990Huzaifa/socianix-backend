@@ -14,6 +14,8 @@ import {
 } from './controllers';
 import { Lead } from './entities/lead.entity';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
+import { SocialAccount } from './entities/social-account.entity';
+import { SocialPlatform } from './entities/social-platform.entity';
 import { User } from './entities/user.entity';
 import {
   AppService,
@@ -22,6 +24,8 @@ import {
   ContactService,
   MailService,
   PasswordResetTokenService,
+  PlatformOAuthService,
+  SocialAccountsService,
   UsersService,
 } from './services';
 
@@ -38,7 +42,13 @@ import {
         autoLoadEntities: true,
       }),
     }),
-    TypeOrmModule.forFeature([User, PasswordResetToken, Lead]),
+    TypeOrmModule.forFeature([
+      User,
+      PasswordResetToken,
+      Lead,
+      SocialPlatform,
+      SocialAccount,
+    ]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -70,6 +80,8 @@ import {
     MailService,
     ConnectService,
     ContactService,
+    PlatformOAuthService,
+    SocialAccountsService,
     PasswordResetTokenService,
     JwtStrategy,
   ],

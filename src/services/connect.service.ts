@@ -1,9 +1,17 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
 import { OAuthCallbackQuery } from '../connect/dto/oauth-callback.dto';
 import { ConnectPlatform } from '../connect/connect-platform.type';
+import { OAuthStatePayload } from '../connect/types/oauth.types';
+import { PlatformOAuthService } from './platform-oauth.service';
+import { SocialAccountsService } from './social-accounts.service';
 
 @Injectable()
 export class ConnectService {
@@ -12,6 +20,8 @@ export class ConnectService {
   constructor(
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
+    private readonly platformOAuthService: PlatformOAuthService,
+    private readonly socialAccountsService: SocialAccountsService,
   ) {}
 
   getAuthorizationUrl(platform: ConnectPlatform, userId: string) {
@@ -33,18 +43,6 @@ export class ConnectService {
     }
   }
 
-  private signState(platform: ConnectPlatform, userId: string): string {
-    return this.jwtService.sign(
-      {
-        sub: userId,
-        platform,
-        purpose: 'social-connect',
-        nonce: randomUUID(),
-      },
-      { expiresIn: '10m' },
-    );
-  }
-
   async handleCallback(platform: ConnectPlatform, query: OAuthCallbackQuery) {
     if (query.error) {
       this.logger.warn(
@@ -61,35 +59,80 @@ export class ConnectService {
       );
     }
 
-    this.logger.log(`${platform} OAuth callback received (state=${query.state ?? 'none'})`);
+    this.logger.log(
+      `${platform} OAuth callback received (state=${query.state ?? 'none'})`,
+    );
 
-    switch (platform) {
-      case 'google':
-        return this.handleGoogleCallback(query.code, query.state);
-      case 'meta':
-        return this.handleMetaCallback(query.code, query.state);
-      case 'linkedin':
-        return this.handleLinkedinCallback(query.code, query.state);
-      case 'pinterest':
-        return this.handlePinterestCallback(query.code, query.state);
-      case 'tiktok':
-        return this.handleTiktokCallback(query.code, query.state);
-    }
+    return this.completeOAuthConnect(platform, query.code, query.state);
   }
 
-  private async handleGoogleCallback(code: string, state?: string) {
-    // TODO: exchange code for tokens using GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET,
-    // fetch profile, then upsert social account for the user resolved from state.
-    return this.callbackAck('google', code, state);
+  private async completeOAuthConnect(
+    platform: ConnectPlatform,
+    code: string,
+    state?: string,
+  ) {
+    const userId = this.verifyState(state, platform);
+    const token = await this.platformOAuthService.getAccessToken(
+      platform,
+      code,
+    );
+    const profile = await this.platformOAuthService.getProfileInfo(
+      platform,
+      token.accessToken,
+    );
+    const account = await this.socialAccountsService.upsertFromOAuth(
+      userId,
+      platform,
+      token,
+      profile,
+    );
+
+    return {
+      message: `${platform} account connected successfully`,
+      account,
+    };
+  }
+
+  private verifyState(
+    state: string | undefined,
+    platform: ConnectPlatform,
+  ): string {
+    if (!state) {
+      throw new BadRequestException('Missing OAuth state');
+    }
+
+    let payload: OAuthStatePayload;
+    try {
+      payload = this.jwtService.verify<OAuthStatePayload>(state);
+    } catch {
+      throw new UnauthorizedException('Invalid or expired OAuth state');
+    }
+
+    if (
+      payload.purpose !== 'social-connect' ||
+      payload.platform !== platform
+    ) {
+      throw new BadRequestException('Invalid OAuth state');
+    }
+
+    return payload.sub;
+  }
+
+  private signState(platform: ConnectPlatform, userId: string): string {
+    return this.jwtService.sign(
+      {
+        sub: userId,
+        platform,
+        purpose: 'social-connect',
+        nonce: randomUUID(),
+      },
+      { expiresIn: '10m' },
+    );
   }
 
   private getGoogleAuthorizationUrl(userId: string): string {
-    const clientId =
-      this.configService.get<string>('GOOGLE_CLIENT_ID') ??
-      this.configService.getOrThrow<string>('google_client_id');
-    const redirectUri =
-      this.configService.get<string>('GOOGLE_REDIRECT_URI') ??
-      `${this.configService.getOrThrow<string>('APP_URL').replace(/\/$/, '')}/oauth/google/callback`;
+    const clientId = this.configService.getOrThrow<string>('GOOGLE_CLIENT_ID');
+    const redirectUri = this.platformOAuthService.getRedirectUri('google');
     const scopes = (
       this.configService.get<string>('GOOGLE_SCOPES') ??
       'openid email profile'
@@ -114,9 +157,7 @@ export class ConnectService {
 
   private getPinterestAuthorizationUrl(userId: string): string {
     const clientId = this.configService.getOrThrow<string>('PINTEREST_APP_ID');
-    const redirectUri =
-      this.configService.get<string>('PINTEREST_REDIRECT_URI') ??
-      `${this.configService.getOrThrow<string>('APP_URL').replace(/\/$/, '')}/oauth/pinterest/callback`;
+    const redirectUri = this.platformOAuthService.getRedirectUri('pinterest');
     const scopes = (
       this.configService.get<string>('PINTEREST_SCOPES') ??
       'boards:read pins:read user_accounts:read'
@@ -134,34 +175,5 @@ export class ConnectService {
     });
 
     return `https://www.pinterest.com/oauth/?${params.toString()}`;
-  }
-
-  private async handleMetaCallback(code: string, state?: string) {
-    // TODO: exchange code for tokens using META_CLIENT_ID / META_CLIENT_SECRET.
-    return this.callbackAck('meta', code, state);
-  }
-
-  private async handleLinkedinCallback(code: string, state?: string) {
-    // TODO: exchange code for tokens using LINKEDIN_CLIENT_ID / LINKEDIN_CLIENT_SECRET.
-    return this.callbackAck('linkedin', code, state);
-  }
-
-  private async handlePinterestCallback(code: string, state?: string) {
-    // TODO: exchange code for tokens using PINTEREST_CLIENT_ID / PINTEREST_CLIENT_SECRET.
-    return this.callbackAck('pinterest', code, state);
-  }
-
-  private async handleTiktokCallback(code: string, state?: string) {
-    // TODO: exchange code for tokens using TIKTOK_CLIENT_KEY / TIKTOK_CLIENT_SECRET.
-    return this.callbackAck('tiktok', code, state);
-  }
-
-  private callbackAck(platform: ConnectPlatform, code: string, state?: string) {
-    return {
-      message: `${platform} callback received`,
-      platform,
-      code,
-      state: state ?? null,
-    };
   }
 }
