@@ -133,6 +133,10 @@ export class PlatformOAuthService {
       displayName: data.name ?? null,
       profileImage: data.picture?.data?.url ?? null,
       email: data.email ?? null,
+      metadata: {
+        email: data.email ?? null,
+        providerProfile: data,
+      },
     };
   }
 
@@ -172,6 +176,10 @@ export class PlatformOAuthService {
       displayName: data.name ?? null,
       profileImage: data.picture ?? null,
       email: data.email ?? null,
+      metadata: {
+        email: data.email ?? null,
+        providerProfile: data,
+      },
     };
   }
 
@@ -218,6 +226,9 @@ export class PlatformOAuthService {
       displayName: user.display_name ?? null,
       profileImage: user.avatar_url ?? null,
       email: null,
+      metadata: {
+        providerProfile: user,
+      },
     };
   }
 

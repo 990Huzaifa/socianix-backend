@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConnectPlatform } from '../connect/connect-platform.type';
@@ -15,6 +15,8 @@ import { SocialPlatform } from '../entities/social-platform.entity';
 
 @Injectable()
 export class SocialAccountsService {
+  private readonly logger = new Logger(SocialAccountsService.name);
+
   constructor(
     @InjectRepository(SocialAccount)
     private readonly socialAccountsRepository: Repository<SocialAccount>,
@@ -48,12 +50,20 @@ export class SocialAccountsService {
         : null;
 
     let account = await this.socialAccountsRepository.findOne({
-      where: {
-        userId,
-        platformId: platform.id,
-      },
+      where: { userId, platformId: platform.id },
     });
 
+    if (!account) {
+      account = await this.socialAccountsRepository.findOne({
+        where: {
+          userId,
+          platformId: platform.id,
+          platformUserId: profile.platformUserId,
+        },
+      });
+    }
+
+    const metadata = this.buildMetadata(profile);
     const accountData = {
       userId,
       platformId: platform.id,
@@ -62,11 +72,11 @@ export class SocialAccountsService {
       displayName: profile.displayName ?? null,
       profileImage: profile.profileImage ?? null,
       accessToken: token.accessToken,
-      refreshToken: token.refreshToken ?? null,
-      tokenType: token.tokenType ?? null,
+      refreshToken: token.refreshToken ?? account?.refreshToken ?? null,
+      tokenType: token.tokenType ?? account?.tokenType ?? null,
       expiresAt,
       scopes,
-      metadata: profile.metadata ?? (profile.email ? { email: profile.email } : null),
+      metadata,
       status: SocialAccountStatus.ACTIVE,
       connectedAt: account?.connectedAt ?? new Date(),
       lastSyncedAt: new Date(),
@@ -77,13 +87,33 @@ export class SocialAccountsService {
         ...account,
         ...accountData,
       });
+      this.logger.log(
+        `Updated social account ${account.id} for user=${userId} platform=${platformSlug}`,
+      );
     } else {
       account = await this.socialAccountsRepository.save(
         this.socialAccountsRepository.create(accountData),
       );
+      this.logger.log(
+        `Created social account ${account.id} for user=${userId} platform=${platformSlug}`,
+      );
     }
 
     return this.toConnectedResponse(platformSlug, account);
+  }
+
+  private buildMetadata(
+    profile: OAuthProfileInfo,
+  ): Record<string, unknown> | null {
+    const metadata: Record<string, unknown> = {
+      ...(profile.metadata ?? {}),
+    };
+
+    if (profile.email) {
+      metadata.email = profile.email;
+    }
+
+    return Object.keys(metadata).length > 0 ? metadata : null;
   }
 
   private toConnectedResponse(
