@@ -11,6 +11,8 @@ import {
   AuthController,
   ConnectController,
   ContactController,
+  GoogleController,
+  PinterestController,
 } from './controllers';
 import { Lead } from './entities/lead.entity';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
@@ -74,6 +76,8 @@ import {
     AuthController,
     ConnectController,
     ContactController,
+    GoogleController,
+    PinterestController,
   ],
   providers: [
     AppService,

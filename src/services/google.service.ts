@@ -1,16 +1,56 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { OAuthTokenResult } from '../connect/types/oauth.types';
+import { SocialAccountsService } from './social-accounts.service';
+
+type GoogleAccount = {
+  name?: string;
+  accountName?: string;
+  type?: string;
+  verificationState?: string;
+  [key: string]: unknown;
+};
+
+type GoogleLocation = {
+  name?: string;
+  title?: string;
+  [key: string]: unknown;
+};
 
 @Injectable()
 export class GoogleService {
   private readonly logger = new Logger(GoogleService.name);
+  private readonly locationReadMask = [
+    'name',
+    'title',
+    'storefrontAddress',
+    'websiteUri',
+    'phoneNumbers',
+    'categories',
+    'regularHours',
+    'specialHours',
+    'serviceArea',
+    'labels',
+    'adWordsLocationExtensions',
+    'latlng',
+    'openInfo',
+    'metadata',
+    'profile',
+    'relationshipData',
+    'moreHours',
+  ].join(',');
 
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly socialAccountsService: SocialAccountsService,
   ) {}
 
   getRedirectUri(): string {
@@ -73,9 +113,10 @@ export class GoogleService {
   }
 
   async getLocation(accessToken: string, accountName: string) {
+    const encodedMask = encodeURIComponent(this.locationReadMask);
     const { data } = await this.request(
       'GET',
-      `https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations`,
+      `https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations?readMask=${encodedMask}&pageSize=100`,
       accessToken,
     );
 
@@ -83,13 +124,83 @@ export class GoogleService {
   }
 
   async getBusinessProfile(accessToken: string, locationName: string) {
+    const encodedMask = encodeURIComponent(this.locationReadMask);
     const { data } = await this.request(
       'GET',
-      `https://mybusinessbusinessinformation.googleapis.com/v1/${locationName}`,
+      `https://mybusinessbusinessinformation.googleapis.com/v1/${locationName}?readMask=${encodedMask}`,
       accessToken,
     );
 
     return data;
+  }
+
+  /**
+   * Uses the stored Google token for the user and returns all Business Profile
+   * accounts + locations with their ids/names and full provider payloads.
+   */
+  async getBusinessProfilesForUser(userId: string) {
+    const accessToken = await this.resolveAccessToken(userId);
+    return this.getBusinessProfiles(accessToken);
+  }
+
+  async getBusinessProfiles(accessToken: string) {
+    const accountsResponse = (await this.getAccount(accessToken)) as {
+      accounts?: GoogleAccount[];
+    };
+    const accounts = accountsResponse.accounts ?? [];
+
+    const profiles: Array<{
+      accountId: string | null;
+      accountName: string | null;
+      account: GoogleAccount;
+      locations: Array<{
+        locationId: string | null;
+        locationName: string | null;
+        title: string | null;
+        location: GoogleLocation;
+      }>;
+      locationsRaw: unknown;
+    }> = [];
+
+    for (const account of accounts) {
+      const accountId = this.extractResourceId(account.name);
+      let locations: GoogleLocation[] = [];
+      let locationsRaw: unknown = null;
+
+      if (account.name) {
+        try {
+          locationsRaw = await this.getLocation(accessToken, account.name);
+          locations =
+            (locationsRaw as { locations?: GoogleLocation[] }).locations ?? [];
+        } catch (error) {
+          this.logger.warn(
+            `Failed to fetch locations for ${account.name}: ${this.formatError(error)}`,
+          );
+        }
+      }
+
+      profiles.push({
+        accountId,
+        accountName: account.name ?? null,
+        account,
+        locations: locations.map((location) => ({
+          locationId: this.extractResourceId(location.name),
+          locationName: location.name ?? null,
+          title: location.title ?? null,
+          location,
+        })),
+        locationsRaw,
+      });
+    }
+
+    return {
+      accounts: profiles,
+      totalAccounts: profiles.length,
+      totalLocations: profiles.reduce(
+        (sum, item) => sum + item.locations.length,
+        0,
+      ),
+    };
   }
 
   async collectConnectData(accessToken: string) {
@@ -131,6 +242,41 @@ export class GoogleService {
         businessProfile,
       },
     };
+  }
+
+  private async resolveAccessToken(userId: string): Promise<string> {
+    let account =
+      await this.socialAccountsService.findActiveByUserAndPlatform(
+        userId,
+        'google',
+      );
+
+    const isExpired =
+      account.expiresAt != null && account.expiresAt.getTime() <= Date.now();
+
+    if (isExpired) {
+      if (!account.refreshToken) {
+        throw new UnauthorizedException(
+          'Google access token expired and no refresh token is stored. Reconnect Google.',
+        );
+      }
+
+      const refreshed = await this.refreshToken(account.refreshToken);
+      account = await this.socialAccountsService.updateTokens(
+        account.id,
+        refreshed,
+      );
+    }
+
+    return this.socialAccountsService.assertHasAccessToken(account);
+  }
+
+  private extractResourceId(resourceName?: string | null): string | null {
+    if (!resourceName) {
+      return null;
+    }
+    const parts = resourceName.split('/');
+    return parts[parts.length - 1] ?? null;
   }
 
   private mapTokenResponse(data: Record<string, unknown>): OAuthTokenResult {
@@ -188,7 +334,7 @@ export class GoogleService {
           url,
           data: payload,
           headers: { Authorization: `Bearer ${accessToken}` },
-          timeout: 15000,
+          timeout: 20000,
         }),
       );
     } catch (error) {

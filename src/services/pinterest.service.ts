@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { OAuthTokenResult } from '../connect/types/oauth.types';
+import { SocialAccountsService } from './social-accounts.service';
 
 @Injectable()
 export class PinterestService {
@@ -11,6 +12,7 @@ export class PinterestService {
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly socialAccountsService: SocialAccountsService,
   ) {}
 
   getRedirectUri(): string {
@@ -78,14 +80,77 @@ export class PinterestService {
     };
   }
 
-  async getUserBoards(accessToken: string) {
+  async getUserBoards(
+    accessToken: string,
+    options?: { pageSize?: number; bookmark?: string },
+  ) {
+    const params = new URLSearchParams();
+    params.set('page_size', String(options?.pageSize ?? 25));
+    if (options?.bookmark) {
+      params.set('bookmark', options.bookmark);
+    }
+
     const { data } = await this.request(
       'GET',
-      'https://api.pinterest.com/v5/boards',
+      `https://api.pinterest.com/v5/boards?${params.toString()}`,
       accessToken,
     );
 
     return data;
+  }
+
+  async getBoard(accessToken: string, boardId: string) {
+    const { data } = await this.request(
+      'GET',
+      `https://api.pinterest.com/v5/boards/${encodeURIComponent(boardId)}`,
+      accessToken,
+    );
+
+    return data;
+  }
+
+  /**
+   * Uses the stored Pinterest token for the user and returns boards list
+   * with ids and full provider payloads.
+   */
+  async getBoardsForUser(
+    userId: string,
+    options?: { pageSize?: number; bookmark?: string },
+  ) {
+    const accessToken = await this.resolveAccessToken(userId);
+    const boardsResponse = (await this.getUserBoards(accessToken, options)) as {
+      items?: Array<{ id?: string; name?: string; [key: string]: unknown }>;
+      bookmark?: string;
+      [key: string]: unknown;
+    };
+
+    const items = boardsResponse.items ?? [];
+
+    return {
+      boards: items.map((board) => ({
+        boardId: board.id ?? null,
+        name: board.name ?? null,
+        board,
+      })),
+      bookmark: boardsResponse.bookmark ?? null,
+      raw: boardsResponse,
+      total: items.length,
+    };
+  }
+
+  async getBoardForUser(userId: string, boardId: string) {
+    const accessToken = await this.resolveAccessToken(userId);
+    const board = (await this.getBoard(accessToken, boardId)) as {
+      id?: string;
+      name?: string;
+      [key: string]: unknown;
+    };
+
+    return {
+      boardId: board.id ?? boardId,
+      name: board.name ?? null,
+      board,
+    };
   }
 
   async collectConnectData(accessToken: string) {
@@ -107,6 +172,15 @@ export class PinterestService {
         boards,
       },
     };
+  }
+
+  private async resolveAccessToken(userId: string): Promise<string> {
+    const account =
+      await this.socialAccountsService.findActiveByUserAndPlatform(
+        userId,
+        'pinterest',
+      );
+    return this.socialAccountsService.assertHasAccessToken(account);
   }
 
   private mapTokenResponse(data: Record<string, unknown>): OAuthTokenResult {
@@ -149,7 +223,7 @@ export class PinterestService {
           url,
           data: payload,
           headers: { Authorization: `Bearer ${accessToken}` },
-          timeout: 15000,
+          timeout: 20000,
         }),
       );
     } catch (error) {

@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConnectPlatform } from '../connect/connect-platform.type';
@@ -23,6 +28,68 @@ export class SocialAccountsService {
     @InjectRepository(SocialPlatform)
     private readonly socialPlatformsRepository: Repository<SocialPlatform>,
   ) {}
+
+  async findActiveByUserAndPlatform(
+    userId: string,
+    platformSlug: ConnectPlatform,
+  ): Promise<SocialAccount> {
+    const platform = await this.socialPlatformsRepository.findOne({
+      where: { slug: platformSlug },
+    });
+
+    if (!platform) {
+      throw new NotFoundException(
+        `Platform "${platformSlug}" is not seeded. Run npm run seed.`,
+      );
+    }
+
+    const account = await this.socialAccountsRepository.findOne({
+      where: {
+        userId,
+        platformId: platform.id,
+        status: SocialAccountStatus.ACTIVE,
+      },
+    });
+
+    if (!account) {
+      throw new NotFoundException(
+        `No connected ${platformSlug} account found. Connect the platform first.`,
+      );
+    }
+
+    return account;
+  }
+
+  async updateTokens(
+    accountId: string,
+    token: OAuthTokenResult,
+  ): Promise<SocialAccount> {
+    const account = await this.socialAccountsRepository.findOne({
+      where: { id: accountId },
+    });
+
+    if (!account) {
+      throw new NotFoundException('Social account not found');
+    }
+
+    const expiresAt =
+      token.expiresIn != null
+        ? new Date(Date.now() + token.expiresIn * 1000)
+        : account.expiresAt;
+
+    return this.socialAccountsRepository.save({
+      ...account,
+      accessToken: token.accessToken,
+      refreshToken: token.refreshToken ?? account.refreshToken,
+      tokenType: token.tokenType ?? account.tokenType,
+      expiresAt,
+      scopes: token.scope
+        ? token.scope.split(/[\s,]+/).filter(Boolean)
+        : account.scopes,
+      lastSyncedAt: new Date(),
+      status: SocialAccountStatus.ACTIVE,
+    });
+  }
 
   async upsertFromOAuth(
     userId: string,
@@ -100,6 +167,13 @@ export class SocialAccountsService {
     }
 
     return this.toConnectedResponse(platformSlug, account);
+  }
+
+  assertHasAccessToken(account: SocialAccount): string {
+    if (!account.accessToken) {
+      throw new UnauthorizedException('Stored access token is missing');
+    }
+    return account.accessToken;
   }
 
   private buildMetadata(
