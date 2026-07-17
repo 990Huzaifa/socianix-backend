@@ -15,16 +15,34 @@ export class ConnectService {
   ) {}
 
   getAuthorizationUrl(platform: ConnectPlatform, userId: string) {
-    if (platform !== 'google') {
-      throw new BadRequestException(
-        `${platform} connection is not available yet`,
-      );
+    switch (platform) {
+      case 'google':
+        return {
+          platform,
+          authorizationUrl: this.getGoogleAuthorizationUrl(userId),
+        };
+      case 'pinterest':
+        return {
+          platform,
+          authorizationUrl: this.getPinterestAuthorizationUrl(userId),
+        };
+      default:
+        throw new BadRequestException(
+          `${platform} connection is not available yet`,
+        );
     }
+  }
 
-    return {
-      platform,
-      authorizationUrl: this.getGoogleAuthorizationUrl(userId),
-    };
+  private signState(platform: ConnectPlatform, userId: string): string {
+    return this.jwtService.sign(
+      {
+        sub: userId,
+        platform,
+        purpose: 'social-connect',
+        nonce: randomUUID(),
+      },
+      { expiresIn: '10m' },
+    );
   }
 
   async handleCallback(platform: ConnectPlatform, query: OAuthCallbackQuery) {
@@ -78,15 +96,7 @@ export class ConnectService {
     )
       .split(/[\s,]+/)
       .filter(Boolean);
-    const state = this.jwtService.sign(
-      {
-        sub: userId,
-        platform: 'google',
-        purpose: 'social-connect',
-        nonce: randomUUID(),
-      },
-      { expiresIn: '10m' },
-    );
+    const state = this.signState('google', userId);
 
     const params = new URLSearchParams({
       client_id: clientId,
@@ -100,6 +110,30 @@ export class ConnectService {
     });
 
     return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  }
+
+  private getPinterestAuthorizationUrl(userId: string): string {
+    const clientId = this.configService.getOrThrow<string>('PINTEREST_APP_ID');
+    const redirectUri =
+      this.configService.get<string>('PINTEREST_REDIRECT_URI') ??
+      `${this.configService.getOrThrow<string>('APP_URL').replace(/\/$/, '')}/oauth/pinterest/callback`;
+    const scopes = (
+      this.configService.get<string>('PINTEREST_SCOPES') ??
+      'boards:read pins:read user_accounts:read'
+    )
+      .split(/[\s,]+/)
+      .filter(Boolean);
+    const state = this.signState('pinterest', userId);
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: scopes.join(' '),
+      state,
+    });
+
+    return `https://www.pinterest.com/oauth/?${params.toString()}`;
   }
 
   private async handleMetaCallback(code: string, state?: string) {

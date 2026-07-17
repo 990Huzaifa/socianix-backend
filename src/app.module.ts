@@ -43,12 +43,18 @@ import {
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.getOrThrow<string>('JWT_SECRET'),
-        signOptions: {
-          expiresIn: parseInt(configService.get<string>('JWT_EXPIRES_IN') ?? '7d'),
-        },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const expiresIn = configService.get<string>('JWT_EXPIRES_IN') ?? '7d';
+        return {
+          secret: configService.getOrThrow<string>('JWT_SECRET'),
+          signOptions: {
+            // Keep string values like "7d" intact. parseInt("7d") => 7 (seconds).
+            expiresIn: /^\d+$/.test(expiresIn)
+              ? Number(expiresIn)
+              : (expiresIn as `${number}d` | `${number}h` | `${number}m` | `${number}s`),
+          },
+        };
+      },
     }),
   ],
   controllers: [

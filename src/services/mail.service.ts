@@ -4,6 +4,7 @@ import * as Handlebars from 'handlebars';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
+import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
 import FormData from 'form-data';
 
@@ -135,7 +136,8 @@ export class MailService {
         const masterUser = this.configService.get<string>(
             'MAIL_SERVICE_MASTER_USER',
         );
-        const fromEmail = this.resolveFromEmail(from);
+        const fromEmail = 'developer@socialsyncc.com';
+        // const fromEmail = this.resolveFromEmail(from);
 
         if (!url || !apiKey || !masterUser) {
             this.logger.log(
@@ -151,14 +153,22 @@ export class MailService {
         formData.append('subject', subject);
         formData.append('body_html', bodyHtml);
 
-        await firstValueFrom(
-            this.httpService.post(url, formData, {
-                headers: {
-                    ...formData.getHeaders(),
-                    'x-api-key': apiKey,
-                },
-            }),
-        );
+        try {
+            await firstValueFrom(
+                this.httpService.post(url, formData, {
+                    headers: {
+                        ...formData.getHeaders(),
+                        'x-api-key': apiKey,
+                    },
+                    timeout: 15000,
+                }),
+            );
+        } catch (error) {
+            const axiosError = error as AxiosError;
+            this.logger.error(
+                `Mail API failed (status=${axiosError.response?.status ?? 'n/a'}) to=${toEmail} from=${fromEmail} subject="${subject}" body=${JSON.stringify(axiosError.response?.data ?? axiosError.message)}`,
+            );
+        }
     }
 
     private resolveFromEmail(from: MailFrom): string {
