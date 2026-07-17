@@ -9,7 +9,10 @@ import { JwtService } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
 import { OAuthCallbackQuery } from '../connect/dto/oauth-callback.dto';
 import { ConnectPlatform } from '../connect/connect-platform.type';
-import { OAuthStatePayload } from '../connect/types/oauth.types';
+import {
+  OAuthProfileInfo,
+  OAuthStatePayload,
+} from '../connect/types/oauth.types';
 import { PlatformOAuthService } from './platform-oauth.service';
 import { SocialAccountsService } from './social-accounts.service';
 
@@ -76,10 +79,29 @@ export class ConnectService {
       platform,
       code,
     );
-    const profile = await this.platformOAuthService.getProfileInfo(
-      platform,
-      token.accessToken,
-    );
+
+    let profile: OAuthProfileInfo;
+    try {
+      profile = await this.platformOAuthService.getProfileInfo(
+        platform,
+        token.accessToken,
+      );
+    } catch (error) {
+      // Never lose the connection: if profile enrichment fails we still
+      // persist the account with the token and a minimal fallback identity.
+      this.logger.error(
+        `${platform} profile fetch failed, saving account with fallback profile: ${this.formatError(error)}`,
+      );
+      profile = {
+        platformUserId: `${platform}:${userId}`,
+        username: `${platform}-user`,
+        displayName: null,
+        profileImage: null,
+        email: null,
+        metadata: { profileFetchFailed: true },
+      };
+    }
+
     const account = await this.socialAccountsService.upsertFromOAuth(
       userId,
       platform,
@@ -91,6 +113,13 @@ export class ConnectService {
       message: `${platform} account connected successfully`,
       account,
     };
+  }
+
+  private formatError(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return String(error);
   }
 
   private verifyState(
