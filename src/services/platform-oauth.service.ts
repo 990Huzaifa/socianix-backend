@@ -12,6 +12,8 @@ import {
   OAuthProfileInfo,
   OAuthTokenResult,
 } from '../connect/types/oauth.types';
+import { GoogleService } from './google.service';
+import { PinterestService } from './pinterest.service';
 
 @Injectable()
 export class PlatformOAuthService {
@@ -20,9 +22,18 @@ export class PlatformOAuthService {
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly googleService: GoogleService,
+    private readonly pinterestService: PinterestService,
   ) {}
 
   getRedirectUri(platform: ConnectPlatform): string {
+    if (platform === 'google') {
+      return this.googleService.getRedirectUri();
+    }
+    if (platform === 'pinterest') {
+      return this.pinterestService.getRedirectUri();
+    }
+
     const appUrl = this.configService
       .getOrThrow<string>('APP_URL')
       .replace(/\/$/, '');
@@ -47,13 +58,13 @@ export class PlatformOAuthService {
   ): Promise<OAuthTokenResult> {
     switch (platform) {
       case 'google':
-        return this.getGoogleAccessToken(code);
+        return this.googleService.getAccessToken(code);
       case 'meta':
         return this.getMetaAccessToken(code);
       case 'linkedin':
         return this.getLinkedinAccessToken(code);
       case 'pinterest':
-        return this.getPinterestAccessToken(code);
+        return this.pinterestService.getAccessToken(code);
       case 'tiktok':
         return this.getTiktokAccessToken(code);
     }
@@ -64,54 +75,25 @@ export class PlatformOAuthService {
     accessToken: string,
   ): Promise<OAuthProfileInfo> {
     switch (platform) {
-      case 'google':
-        return this.getGoogleProfile(accessToken);
+      case 'google': {
+        const data = await this.googleService.collectConnectData(accessToken);
+        return { ...data.profile, metadata: data.metadata };
+      }
       case 'meta':
         return this.getMetaProfile(accessToken);
       case 'linkedin':
         return this.getLinkedinProfile(accessToken);
-      case 'pinterest':
-        return this.getPinterestProfile(accessToken);
+      case 'pinterest': {
+        const data = await this.pinterestService.collectConnectData(accessToken);
+        return { ...data.profile, metadata: data.metadata };
+      }
       case 'tiktok':
         return this.getTiktokProfile(accessToken);
     }
   }
 
-  private async getGoogleAccessToken(code: string): Promise<OAuthTokenResult> {
-    const body = new URLSearchParams({
-      code,
-      client_id: this.configService.getOrThrow<string>('GOOGLE_CLIENT_ID'),
-      client_secret: this.configService.getOrThrow<string>(
-        'GOOGLE_CLIENT_SECRET',
-      ),
-      redirect_uri: this.getRedirectUri('google'),
-      grant_type: 'authorization_code',
-    });
-
-    const { data } = await this.postForm(
-      'https://oauth2.googleapis.com/token',
-      body,
-    );
-
-    return this.mapTokenResponse(data);
-  }
-
-  private async getGoogleProfile(
-    accessToken: string,
-  ): Promise<OAuthProfileInfo> {
-    const { data } = await firstValueFrom(
-      this.httpService.get('https://www.googleapis.com/oauth2/v2/userinfo', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }),
-    );
-
-    return {
-      platformUserId: String(data.id),
-      username: data.email ?? data.name ?? String(data.id),
-      displayName: data.name ?? null,
-      profileImage: data.picture ?? null,
-      email: data.email ?? null,
-    };
+  async refreshGoogleToken(refreshToken: string): Promise<OAuthTokenResult> {
+    return this.googleService.refreshToken(refreshToken);
   }
 
   private async getMetaAccessToken(code: string): Promise<OAuthTokenResult> {
@@ -190,57 +172,6 @@ export class PlatformOAuthService {
       displayName: data.name ?? null,
       profileImage: data.picture ?? null,
       email: data.email ?? null,
-    };
-  }
-
-  private async getPinterestAccessToken(
-    code: string,
-  ): Promise<OAuthTokenResult> {
-    const clientId = this.configService.getOrThrow<string>('PINTEREST_APP_ID');
-    const clientSecret = this.configService.getOrThrow<string>(
-      'PINTEREST_APP_SECRET',
-    );
-    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
-      'base64',
-    );
-
-    const body = new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: this.getRedirectUri('pinterest'),
-    });
-
-    const { data } = await firstValueFrom(
-      this.httpService.post(
-        'https://api.pinterest.com/v5/oauth/token',
-        body.toString(),
-        {
-          headers: {
-            Authorization: `Basic ${credentials}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-        },
-      ),
-    );
-
-    return this.mapTokenResponse(data);
-  }
-
-  private async getPinterestProfile(
-    accessToken: string,
-  ): Promise<OAuthProfileInfo> {
-    const { data } = await firstValueFrom(
-      this.httpService.get('https://api.pinterest.com/v5/user_account', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }),
-    );
-
-    return {
-      platformUserId: String(data.username ?? data.id ?? data.account_type),
-      username: data.username ?? String(data.id),
-      displayName: data.username ?? null,
-      profileImage: data.profile_image ?? null,
-      email: null,
     };
   }
 

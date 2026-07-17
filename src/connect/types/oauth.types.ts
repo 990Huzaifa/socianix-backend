@@ -21,6 +21,7 @@ export type OAuthProfileInfo = {
   displayName?: string | null;
   profileImage?: string | null;
   email?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 export type ConnectedAccountResponse = {

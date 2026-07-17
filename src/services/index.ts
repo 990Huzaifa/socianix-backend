@@ -4,6 +4,8 @@ export { ConnectService } from './connect.service';
 export { ContactService } from './contact.service';
 export { MailService } from './mail.service';
 export { PasswordResetTokenService } from './password-reset-token.service';
+export { GoogleService } from './google.service';
+export { PinterestService } from './pinterest.service';
 export { PlatformOAuthService } from './platform-oauth.service';
 export { SocialAccountsService } from './social-accounts.service';
 export { UsersService } from './users.service';

@@ -25,6 +25,8 @@ import {
   MailService,
   PasswordResetTokenService,
   PlatformOAuthService,
+  GoogleService,
+  PinterestService,
   SocialAccountsService,
   UsersService,
 } from './services';
@@ -81,6 +83,8 @@ import {
     ConnectService,
     ContactService,
     PlatformOAuthService,
+    GoogleService,
+    PinterestService,
     SocialAccountsService,
     PasswordResetTokenService,
     JwtStrategy,

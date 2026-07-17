@@ -66,7 +66,7 @@ export class SocialAccountsService {
       tokenType: token.tokenType ?? null,
       expiresAt,
       scopes,
-      metadata: profile.email ? { email: profile.email } : null,
+      metadata: profile.metadata ?? (profile.email ? { email: profile.email } : null),
       status: SocialAccountStatus.ACTIVE,
       connectedAt: account?.connectedAt ?? new Date(),
       lastSyncedAt: new Date(),
