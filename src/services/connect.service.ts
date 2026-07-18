@@ -15,6 +15,8 @@ import {
 } from '../connect/types/oauth.types';
 import { PlatformOAuthService } from './platform-oauth.service';
 import { SocialAccountsService } from './social-accounts.service';
+import { MetaService } from './meta.service';
+import { ThreadsService } from './threads.service';
 
 @Injectable()
 export class ConnectService {
@@ -25,6 +27,8 @@ export class ConnectService {
     private readonly jwtService: JwtService,
     private readonly platformOAuthService: PlatformOAuthService,
     private readonly socialAccountsService: SocialAccountsService,
+    private readonly metaService: MetaService,
+    private readonly threadsService: ThreadsService,
   ) {}
 
   getAuthorizationUrl(platform: ConnectPlatform, userId: string) {
@@ -38,6 +42,20 @@ export class ConnectService {
         return {
           platform,
           authorizationUrl: this.getPinterestAuthorizationUrl(userId),
+        };
+      case 'meta':
+        return {
+          platform,
+          authorizationUrl: this.metaService.getAuthorizationUrl(
+            this.signState('meta', userId),
+          ),
+        };
+      case 'thread':
+        return {
+          platform,
+          authorizationUrl: this.threadsService.getAuthorizationUrl(
+            this.signState('thread', userId),
+          ),
         };
       default:
         throw new BadRequestException(

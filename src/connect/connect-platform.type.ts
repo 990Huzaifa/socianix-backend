@@ -1,6 +1,7 @@
 export const CONNECT_PLATFORMS = [
   'google',
   'meta',
+  'thread',
   'linkedin',
   'pinterest',
   'tiktok',

@@ -29,10 +29,18 @@ export const SOCIAL_PLATFORM_SEEDS: SocialPlatformSeed[] = [
   {
     name: 'Meta',
     slug: 'meta',
-    description: 'Connect Facebook and Instagram via Meta.',
+    description: 'Connect Facebook Pages and Instagram via Meta.',
     icon: null,
     logo: null,
-    status: SocialPlatformStatus.COMING_SOON,
+    status: SocialPlatformStatus.ACTIVE,
+  },
+  {
+    name: 'Threads',
+    slug: 'thread',
+    description: 'Connect your Threads account.',
+    icon: null,
+    logo: null,
+    status: SocialPlatformStatus.ACTIVE,
   },
   {
     name: 'LinkedIn',

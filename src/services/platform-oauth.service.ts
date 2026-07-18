@@ -13,7 +13,9 @@ import {
   OAuthTokenResult,
 } from '../connect/types/oauth.types';
 import { GoogleService } from './google.service';
+import { MetaService } from './meta.service';
 import { PinterestService } from './pinterest.service';
+import { ThreadsService } from './threads.service';
 
 @Injectable()
 export class PlatformOAuthService {
@@ -24,6 +26,8 @@ export class PlatformOAuthService {
     private readonly configService: ConfigService,
     private readonly googleService: GoogleService,
     private readonly pinterestService: PinterestService,
+    private readonly metaService: MetaService,
+    private readonly threadsService: ThreadsService,
   ) {}
 
   getRedirectUri(platform: ConnectPlatform): string {
@@ -33,6 +37,12 @@ export class PlatformOAuthService {
     if (platform === 'pinterest') {
       return this.pinterestService.getRedirectUri();
     }
+    if (platform === 'meta') {
+      return this.metaService.getRedirectUri();
+    }
+    if (platform === 'thread') {
+      return this.threadsService.getRedirectUri();
+    }
 
     const appUrl = this.configService
       .getOrThrow<string>('APP_URL')
@@ -41,6 +51,7 @@ export class PlatformOAuthService {
     const envMap: Record<ConnectPlatform, string> = {
       google: 'GOOGLE_REDIRECT_URI',
       meta: 'META_REDIRECT_URI',
+      thread: 'THREAD_REDIRECT_URI',
       linkedin: 'LINKEDIN_REDIRECT_URI',
       pinterest: 'PINTEREST_REDIRECT_URI',
       tiktok: 'TIKTOK_REDIRECT_URI',
@@ -60,7 +71,9 @@ export class PlatformOAuthService {
       case 'google':
         return this.googleService.getAccessToken(code);
       case 'meta':
-        return this.getMetaAccessToken(code);
+        return this.metaService.getAccessToken(code);
+      case 'thread':
+        return this.threadsService.getAccessToken(code);
       case 'linkedin':
         return this.getLinkedinAccessToken(code);
       case 'pinterest':
@@ -79,8 +92,14 @@ export class PlatformOAuthService {
         const data = await this.googleService.collectConnectData(accessToken);
         return { ...data.profile, metadata: data.metadata };
       }
-      case 'meta':
-        return this.getMetaProfile(accessToken);
+      case 'meta': {
+        const data = await this.metaService.collectConnectData(accessToken);
+        return { ...data.profile, metadata: data.metadata };
+      }
+      case 'thread': {
+        const data = await this.threadsService.collectConnectData(accessToken);
+        return { ...data.profile, metadata: data.metadata };
+      }
       case 'linkedin':
         return this.getLinkedinProfile(accessToken);
       case 'pinterest': {
@@ -94,50 +113,6 @@ export class PlatformOAuthService {
 
   async refreshGoogleToken(refreshToken: string): Promise<OAuthTokenResult> {
     return this.googleService.refreshToken(refreshToken);
-  }
-
-  private async getMetaAccessToken(code: string): Promise<OAuthTokenResult> {
-    this.requireEnv(['META_APP_ID', 'META_APP_SECRET']);
-
-    const params = new URLSearchParams({
-      client_id: this.configService.getOrThrow<string>('META_APP_ID'),
-      client_secret: this.configService.getOrThrow<string>('META_APP_SECRET'),
-      redirect_uri: this.getRedirectUri('meta'),
-      code,
-    });
-
-    const { data } = await firstValueFrom(
-      this.httpService.get(
-        `https://graph.facebook.com/v21.0/oauth/access_token?${params.toString()}`,
-      ),
-    );
-
-    return this.mapTokenResponse(data);
-  }
-
-  private async getMetaProfile(
-    accessToken: string,
-  ): Promise<OAuthProfileInfo> {
-    const { data } = await firstValueFrom(
-      this.httpService.get(
-        'https://graph.facebook.com/me?fields=id,name,email,picture',
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        },
-      ),
-    );
-
-    return {
-      platformUserId: String(data.id),
-      username: data.email ?? data.name ?? String(data.id),
-      displayName: data.name ?? null,
-      profileImage: data.picture?.data?.url ?? null,
-      email: data.email ?? null,
-      metadata: {
-        email: data.email ?? null,
-        providerProfile: data,
-      },
-    };
   }
 
   private async getLinkedinAccessToken(code: string): Promise<OAuthTokenResult> {
@@ -184,16 +159,22 @@ export class PlatformOAuthService {
   }
 
   private async getTiktokAccessToken(code: string): Promise<OAuthTokenResult> {
-    this.requireEnv(['TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET']);
+    const clientKey =
+      this.configService.get<string>('Tiktok_CLIENT_KEY') ??
+      this.configService.getOrThrow<string>('TIKTOK_CLIENT_KEY');
+    const clientSecret =
+      this.configService.get<string>('Tiktok_CLIENT_SECRET') ??
+      this.configService.getOrThrow<string>('TIKTOK_CLIENT_SECRET');
+    const redirectUri =
+      this.configService.get<string>('Tiktok_REDIRECT_URI') ??
+      this.getRedirectUri('tiktok');
 
     const body = new URLSearchParams({
-      client_key: this.configService.getOrThrow<string>('TIKTOK_CLIENT_KEY'),
-      client_secret: this.configService.getOrThrow<string>(
-        'TIKTOK_CLIENT_SECRET',
-      ),
+      client_key: clientKey,
+      client_secret: clientSecret,
       code,
       grant_type: 'authorization_code',
-      redirect_uri: this.getRedirectUri('tiktok'),
+      redirect_uri: redirectUri,
     });
 
     const { data } = await this.postForm(

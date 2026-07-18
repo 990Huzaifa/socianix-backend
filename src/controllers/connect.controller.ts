@@ -40,4 +40,9 @@ export class ConnectController {
   tiktokCallback(@Query() query: OAuthCallbackQuery) {
     return this.connectService.handleCallback('tiktok', query);
   }
+
+  @Get('thread/callback')
+  threadCallback(@Query() query: OAuthCallbackQuery) {
+    return this.connectService.handleCallback('thread', query);
+  }
 }

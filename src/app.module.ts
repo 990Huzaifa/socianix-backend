@@ -12,6 +12,7 @@ import {
   ConnectController,
   ContactController,
   GoogleController,
+  MetaController,
   PinterestController,
 } from './controllers';
 import { Lead } from './entities/lead.entity';
@@ -28,8 +29,10 @@ import {
   PasswordResetTokenService,
   PlatformOAuthService,
   GoogleService,
+  MetaService,
   PinterestService,
   SocialAccountsService,
+  ThreadsService,
   UsersService,
 } from './services';
 
@@ -77,6 +80,7 @@ import {
     ConnectController,
     ContactController,
     GoogleController,
+    MetaController,
     PinterestController,
   ],
   providers: [
@@ -88,7 +92,9 @@ import {
     ContactService,
     PlatformOAuthService,
     GoogleService,
+    MetaService,
     PinterestService,
+    ThreadsService,
     SocialAccountsService,
     PasswordResetTokenService,
     JwtStrategy,
