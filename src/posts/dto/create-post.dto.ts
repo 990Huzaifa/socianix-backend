@@ -89,4 +89,50 @@ export class CreatePostDto {
   @IsUrl({ require_tld: false })
   @MaxLength(2048)
   googleCtaUrl?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  pinterestPost?: boolean;
+
+  @ValidateIf((o: CreatePostDto) => o.pinterestPost === true)
+  @IsString()
+  @IsNotEmpty()
+  pinterestBoardId?: string;
+
+  @ValidateIf((o: CreatePostDto) => o.pinterestPost === true)
+  @IsOptional()
+  @IsString()
+  @IsUrl({ require_tld: false })
+  @MaxLength(2048)
+  pinterestLink?: string;
+
+  /** Facebook Page post via Meta */
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  facebookPost?: boolean;
+
+  @ValidateIf((o: CreatePostDto) => o.facebookPost === true)
+  @IsString()
+  @IsNotEmpty()
+  facebookPageId?: string;
+
+  @ValidateIf((o: CreatePostDto) => o.facebookPost === true)
+  @IsOptional()
+  @IsString()
+  @IsUrl({ require_tld: false })
+  @MaxLength(2048)
+  facebookLink?: string;
+
+  /** Instagram Business post via Meta (linked from facebook-pages) */
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  instagramPost?: boolean;
+
+  @ValidateIf((o: CreatePostDto) => o.instagramPost === true)
+  @IsString()
+  @IsNotEmpty()
+  instagramId?: string;
 }

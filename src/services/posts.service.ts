@@ -18,6 +18,8 @@ import {
   userPrivateChannel,
 } from '../posts/post.constants';
 import { GoogleService } from './google.service';
+import { MetaService } from './meta.service';
+import { PinterestService } from './pinterest.service';
 import { PusherService } from './pusher.service';
 import { S3Service } from './s3.service';
 import { SocialAccountsService } from './social-accounts.service';
@@ -45,6 +47,46 @@ type GooglePlatformMetadata = {
   ctaUrl?: string | null;
 };
 
+type PinterestPublishOptions = {
+  postPlatformId: string;
+  boardId: string;
+  link?: string | null;
+};
+
+type PinterestPlatformMetadata = {
+  provider: 'pinterest';
+  boardId: string;
+  link?: string | null;
+};
+
+type FacebookPublishOptions = {
+  postPlatformId: string;
+  pageId: string;
+  link?: string | null;
+};
+
+type FacebookPlatformMetadata = {
+  provider: 'facebook';
+  pageId: string;
+  link?: string | null;
+};
+
+type InstagramPublishOptions = {
+  postPlatformId: string;
+  instagramId: string;
+};
+
+type InstagramPlatformMetadata = {
+  provider: 'instagram';
+  instagramId: string;
+};
+
+type PlatformMetadata =
+  | GooglePlatformMetadata
+  | PinterestPlatformMetadata
+  | FacebookPlatformMetadata
+  | InstagramPlatformMetadata;
+
 @Injectable()
 export class PostsService {
   private readonly logger = new Logger(PostsService.name);
@@ -59,6 +101,8 @@ export class PostsService {
     private readonly s3Service: S3Service,
     private readonly pusherService: PusherService,
     private readonly googleService: GoogleService,
+    private readonly pinterestService: PinterestService,
+    private readonly metaService: MetaService,
     private readonly socialAccountsService: SocialAccountsService,
   ) {}
 
@@ -74,7 +118,12 @@ export class PostsService {
     files: UploadedMediaFile[] = [],
   ) {
     const googlePost = dto.googlePost === true;
+    const pinterestPost = dto.pinterestPost === true;
+    const facebookPost = dto.facebookPost === true;
+    const instagramPost = dto.instagramPost === true;
     let googleSocialAccountId: string | null = null;
+    let pinterestSocialAccountId: string | null = null;
+    let metaSocialAccountId: string | null = null;
 
     if (googlePost) {
       const googleAccount =
@@ -87,6 +136,46 @@ export class PostsService {
       if (!dto.caption?.trim() && !dto.title?.trim()) {
         throw new BadRequestException(
           'caption or title is required when googlePost is true',
+        );
+      }
+    }
+
+    if (pinterestPost) {
+      const pinterestAccount =
+        await this.socialAccountsService.findActiveByUserAndPlatform(
+          userId,
+          'pinterest',
+        );
+      pinterestSocialAccountId = pinterestAccount.id;
+
+      const hasImage = files.some((file) =>
+        file.mimetype.startsWith('image/'),
+      );
+      if (!hasImage) {
+        throw new BadRequestException(
+          'At least one image file is required when pinterestPost is true',
+        );
+      }
+    }
+
+    if (facebookPost || instagramPost) {
+      const metaAccount =
+        await this.socialAccountsService.findActiveByUserAndPlatform(
+          userId,
+          'meta',
+        );
+      metaSocialAccountId = metaAccount.id;
+    }
+
+    if (instagramPost) {
+      const hasMedia = files.some(
+        (file) =>
+          file.mimetype.startsWith('image/') ||
+          file.mimetype.startsWith('video/'),
+      );
+      if (!hasMedia) {
+        throw new BadRequestException(
+          'At least one image or video file is required when instagramPost is true',
         );
       }
     }
@@ -138,6 +227,9 @@ export class PostsService {
     }
 
     let googleOptions: GooglePublishOptions | null = null;
+    let pinterestOptions: PinterestPublishOptions | null = null;
+    let facebookOptions: FacebookPublishOptions | null = null;
+    let instagramOptions: InstagramPublishOptions | null = null;
 
     if (googlePost && googleSocialAccountId) {
       const actionType = dto.googleCtaActionType!;
@@ -172,8 +264,92 @@ export class PostsService {
       };
     }
 
+    if (pinterestPost && pinterestSocialAccountId) {
+      const metadata: PinterestPlatformMetadata = {
+        provider: 'pinterest',
+        boardId: dto.pinterestBoardId!,
+        link: dto.pinterestLink?.trim() || null,
+      };
+
+      const postPlatform = await this.postPlatformRepository.save(
+        this.postPlatformRepository.create({
+          postId: post.id,
+          socialAccountId: pinterestSocialAccountId,
+          socialPageId: null,
+          platformStatus: PlatformPostStatus.PENDING,
+          platformPostId: null,
+          publishedAt: null,
+          errorMessage: null,
+          metadata,
+        }),
+      );
+
+      pinterestOptions = {
+        postPlatformId: postPlatform.id,
+        boardId: metadata.boardId,
+        link: metadata.link,
+      };
+    }
+
+    if (facebookPost && metaSocialAccountId) {
+      const metadata: FacebookPlatformMetadata = {
+        provider: 'facebook',
+        pageId: dto.facebookPageId!,
+        link: dto.facebookLink?.trim() || null,
+      };
+
+      const postPlatform = await this.postPlatformRepository.save(
+        this.postPlatformRepository.create({
+          postId: post.id,
+          socialAccountId: metaSocialAccountId,
+          socialPageId: null,
+          platformStatus: PlatformPostStatus.PENDING,
+          platformPostId: null,
+          publishedAt: null,
+          errorMessage: null,
+          metadata,
+        }),
+      );
+
+      facebookOptions = {
+        postPlatformId: postPlatform.id,
+        pageId: metadata.pageId,
+        link: metadata.link,
+      };
+    }
+
+    if (instagramPost && metaSocialAccountId) {
+      const metadata: InstagramPlatformMetadata = {
+        provider: 'instagram',
+        instagramId: dto.instagramId!,
+      };
+
+      const postPlatform = await this.postPlatformRepository.save(
+        this.postPlatformRepository.create({
+          postId: post.id,
+          socialAccountId: metaSocialAccountId,
+          socialPageId: null,
+          platformStatus: PlatformPostStatus.PENDING,
+          platformPostId: null,
+          publishedAt: null,
+          errorMessage: null,
+          metadata,
+        }),
+      );
+
+      instagramOptions = {
+        postPlatformId: postPlatform.id,
+        instagramId: metadata.instagramId,
+      };
+    }
+
     setImmediate(() => {
-      void this.processCreateInBackground(post.id, userId, googleOptions);
+      void this.processCreateInBackground(post.id, userId, {
+        google: googleOptions,
+        pinterest: pinterestOptions,
+        facebook: facebookOptions,
+        instagram: instagramOptions,
+      });
     });
 
     this.logger.log(
@@ -187,6 +363,9 @@ export class PostsService {
       channel: userPrivateChannel(userId),
       event: PUSHER_EVENTS.POST_PROCESSED,
       googlePost,
+      pinterestPost,
+      facebookPost,
+      instagramPost,
     };
   }
 
@@ -257,21 +436,50 @@ export class PostsService {
         );
 
         const googleResults: Record<string, unknown>[] = [];
+        const pinterestResults: Record<string, unknown>[] = [];
+        const facebookResults: Record<string, unknown>[] = [];
+        const instagramResults: Record<string, unknown>[] = [];
 
         for (const platform of pendingPlatforms) {
-          const meta = platform.metadata as GooglePlatformMetadata | null;
-          if (!meta || meta.provider !== 'google') {
+          const meta = platform.metadata as PlatformMetadata | null;
+          if (!meta?.provider) {
             continue;
           }
 
-          const result = await this.publishGoogleBusinessPost(post.userId, post, {
-            postPlatformId: platform.id,
-            accountId: meta.accountId,
-            locationId: meta.locationId,
-            actionType: meta.actionType,
-            ctaUrl: meta.ctaUrl ?? null,
-          });
-          googleResults.push(result);
+          if (meta.provider === 'google') {
+            googleResults.push(
+              await this.publishGoogleBusinessPost(post.userId, post, {
+                postPlatformId: platform.id,
+                accountId: meta.accountId,
+                locationId: meta.locationId,
+                actionType: meta.actionType,
+                ctaUrl: meta.ctaUrl ?? null,
+              }),
+            );
+          } else if (meta.provider === 'pinterest') {
+            pinterestResults.push(
+              await this.publishPinterestPin(post.userId, post, {
+                postPlatformId: platform.id,
+                boardId: meta.boardId,
+                link: meta.link ?? null,
+              }),
+            );
+          } else if (meta.provider === 'facebook') {
+            facebookResults.push(
+              await this.publishFacebookPagePost(post.userId, post, {
+                postPlatformId: platform.id,
+                pageId: meta.pageId,
+                link: meta.link ?? null,
+              }),
+            );
+          } else if (meta.provider === 'instagram') {
+            instagramResults.push(
+              await this.publishInstagramPost(post.userId, post, {
+                postPlatformId: platform.id,
+                instagramId: meta.instagramId,
+              }),
+            );
+          }
         }
 
         const platforms = await this.postPlatformRepository.find({
@@ -293,7 +501,6 @@ export class PostsService {
           post.status = PostStatus.FAILED;
           failed += 1;
         } else {
-          // No platforms or still pending — mark published locally at schedule time.
           post.status = PostStatus.PUBLISHED;
           post.publishedAt = new Date();
           published += 1;
@@ -312,6 +519,12 @@ export class PostsService {
             scheduled: true,
             google: googleResults[0] ?? null,
             googleResults,
+            pinterest: pinterestResults[0] ?? null,
+            pinterestResults,
+            facebook: facebookResults[0] ?? null,
+            facebookResults,
+            instagram: instagramResults[0] ?? null,
+            instagramResults,
             platforms,
             post: {
               id: post.id,
@@ -351,19 +564,48 @@ export class PostsService {
   private async processCreateInBackground(
     postId: string,
     userId: string,
-    googleOptions: GooglePublishOptions | null,
+    options: {
+      google: GooglePublishOptions | null;
+      pinterest: PinterestPublishOptions | null;
+      facebook: FacebookPublishOptions | null;
+      instagram: InstagramPublishOptions | null;
+    },
   ) {
     this.logger.log(`Background processing postId=${postId}`);
 
     try {
       const post = await this.finalizeCreateProcessing(postId, userId);
       let googleResult: Record<string, unknown> | null = null;
+      let pinterestResult: Record<string, unknown> | null = null;
+      let facebookResult: Record<string, unknown> | null = null;
+      let instagramResult: Record<string, unknown> | null = null;
 
-      if (googleOptions) {
+      if (options.google) {
         googleResult = await this.publishGoogleBusinessPost(
           userId,
           post,
-          googleOptions,
+          options.google,
+        );
+      }
+      if (options.pinterest) {
+        pinterestResult = await this.publishPinterestPin(
+          userId,
+          post,
+          options.pinterest,
+        );
+      }
+      if (options.facebook) {
+        facebookResult = await this.publishFacebookPagePost(
+          userId,
+          post,
+          options.facebook,
+        );
+      }
+      if (options.instagram) {
+        instagramResult = await this.publishInstagramPost(
+          userId,
+          post,
+          options.instagram,
         );
       }
 
@@ -380,6 +622,9 @@ export class PostsService {
           message: 'Post processing completed',
           channel: userPrivateChannel(userId),
           google: googleResult,
+          pinterest: pinterestResult,
+          facebook: facebookResult,
+          instagram: instagramResult,
           platforms,
           post: {
             id: post.id,
@@ -511,6 +756,239 @@ export class PostsService {
         status: PlatformPostStatus.FAILED,
         error: message,
       };
+    }
+  }
+
+  private async publishPinterestPin(
+    userId: string,
+    post: Post,
+    options: PinterestPublishOptions,
+  ): Promise<Record<string, unknown>> {
+    const postPlatform = await this.postPlatformRepository.findOne({
+      where: { id: options.postPlatformId },
+    });
+
+    if (!postPlatform) {
+      return {
+        status: 'Failed',
+        error: 'Post platform row not found',
+      };
+    }
+
+    if (post.status === PostStatus.SCHEDULED) {
+      this.logger.log(
+        `Skipping Pinterest publish for scheduled postId=${post.id}; leaving PostPlatform Pending`,
+      );
+      return {
+        status: PlatformPostStatus.PENDING,
+        skipped: true,
+        reason: 'scheduled_for_later',
+      };
+    }
+
+    postPlatform.platformStatus = PlatformPostStatus.PUBLISHING;
+    await this.postPlatformRepository.save(postPlatform);
+
+    const imageUrls = (post.media ?? [])
+      .filter((item) => item.type !== PostMediaType.VIDEO)
+      .sort((a, b) => a.order - b.order)
+      .map((item) => item.url);
+
+    if (!imageUrls.length) {
+      postPlatform.platformStatus = PlatformPostStatus.FAILED;
+      postPlatform.errorMessage =
+        'Pinterest requires at least one image (video-only pins are not supported yet)';
+      await this.postPlatformRepository.save(postPlatform);
+      return {
+        status: PlatformPostStatus.FAILED,
+        error: postPlatform.errorMessage,
+      };
+    }
+
+    try {
+      const created = await this.pinterestService.createPinForUser(userId, {
+        boardId: options.boardId,
+        title: post.title,
+        description: post.caption,
+        link: options.link,
+        imageUrls,
+      });
+
+      postPlatform.platformStatus = PlatformPostStatus.PUBLISHED;
+      postPlatform.platformPostId = created.pinId;
+      postPlatform.publishedAt = new Date();
+      postPlatform.errorMessage = null;
+      await this.postPlatformRepository.save(postPlatform);
+
+      return {
+        status: PlatformPostStatus.PUBLISHED,
+        platformPostId: postPlatform.platformPostId,
+        boardId: options.boardId,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Pinterest pin publish failed postId=${post.id}: ${message}`,
+      );
+
+      postPlatform.platformStatus = PlatformPostStatus.FAILED;
+      postPlatform.errorMessage = message;
+      await this.postPlatformRepository.save(postPlatform);
+
+      return {
+        status: PlatformPostStatus.FAILED,
+        error: message,
+      };
+    }
+  }
+
+  private async publishFacebookPagePost(
+    userId: string,
+    post: Post,
+    options: FacebookPublishOptions,
+  ): Promise<Record<string, unknown>> {
+    const postPlatform = await this.postPlatformRepository.findOne({
+      where: { id: options.postPlatformId },
+    });
+
+    if (!postPlatform) {
+      return { status: 'Failed', error: 'Post platform row not found' };
+    }
+
+    if (post.status === PostStatus.SCHEDULED) {
+      return {
+        status: PlatformPostStatus.PENDING,
+        skipped: true,
+        reason: 'scheduled_for_later',
+      };
+    }
+
+    postPlatform.platformStatus = PlatformPostStatus.PUBLISHING;
+    await this.postPlatformRepository.save(postPlatform);
+
+    const imageUrls = (post.media ?? [])
+      .filter((item) => item.type !== PostMediaType.VIDEO)
+      .sort((a, b) => a.order - b.order)
+      .map((item) => item.url);
+    const videoUrl = (post.media ?? []).find(
+      (item) => item.type === PostMediaType.VIDEO,
+    )?.url;
+
+    const message = (post.caption?.trim() || post.title?.trim() || '').trim();
+
+    try {
+      const created = await this.metaService.createPagePostForUser(
+        userId,
+        options.pageId,
+        {
+          message: message || null,
+          link: options.link,
+          imageUrls: videoUrl ? undefined : imageUrls,
+          videoUrl: videoUrl ?? null,
+        },
+      );
+
+      postPlatform.platformStatus = PlatformPostStatus.PUBLISHED;
+      postPlatform.platformPostId = created.postId;
+      postPlatform.publishedAt = new Date();
+      postPlatform.errorMessage = null;
+      await this.postPlatformRepository.save(postPlatform);
+
+      return {
+        status: PlatformPostStatus.PUBLISHED,
+        platformPostId: postPlatform.platformPostId,
+        pageId: options.pageId,
+        kind: created.kind,
+      };
+    } catch (error) {
+      const messageText =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Facebook page publish failed postId=${post.id}: ${messageText}`,
+      );
+      postPlatform.platformStatus = PlatformPostStatus.FAILED;
+      postPlatform.errorMessage = messageText;
+      await this.postPlatformRepository.save(postPlatform);
+      return { status: PlatformPostStatus.FAILED, error: messageText };
+    }
+  }
+
+  private async publishInstagramPost(
+    userId: string,
+    post: Post,
+    options: InstagramPublishOptions,
+  ): Promise<Record<string, unknown>> {
+    const postPlatform = await this.postPlatformRepository.findOne({
+      where: { id: options.postPlatformId },
+    });
+
+    if (!postPlatform) {
+      return { status: 'Failed', error: 'Post platform row not found' };
+    }
+
+    if (post.status === PostStatus.SCHEDULED) {
+      return {
+        status: PlatformPostStatus.PENDING,
+        skipped: true,
+        reason: 'scheduled_for_later',
+      };
+    }
+
+    postPlatform.platformStatus = PlatformPostStatus.PUBLISHING;
+    await this.postPlatformRepository.save(postPlatform);
+
+    const imageUrls = (post.media ?? [])
+      .filter((item) => item.type !== PostMediaType.VIDEO)
+      .sort((a, b) => a.order - b.order)
+      .map((item) => item.url);
+    const videoUrl = (post.media ?? []).find(
+      (item) => item.type === PostMediaType.VIDEO,
+    )?.url;
+
+    if (!imageUrls.length && !videoUrl) {
+      postPlatform.platformStatus = PlatformPostStatus.FAILED;
+      postPlatform.errorMessage =
+        'Instagram requires at least one image or video';
+      await this.postPlatformRepository.save(postPlatform);
+      return {
+        status: PlatformPostStatus.FAILED,
+        error: postPlatform.errorMessage,
+      };
+    }
+
+    try {
+      const created = await this.metaService.createInstagramPostForUser(
+        userId,
+        options.instagramId,
+        {
+          caption: post.caption?.trim() || post.title?.trim() || null,
+          imageUrls: imageUrls.length ? imageUrls : undefined,
+          videoUrl: imageUrls.length ? undefined : (videoUrl ?? null),
+        },
+      );
+
+      postPlatform.platformStatus = PlatformPostStatus.PUBLISHED;
+      postPlatform.platformPostId = created.postId;
+      postPlatform.publishedAt = new Date();
+      postPlatform.errorMessage = null;
+      await this.postPlatformRepository.save(postPlatform);
+
+      return {
+        status: PlatformPostStatus.PUBLISHED,
+        platformPostId: postPlatform.platformPostId,
+        instagramId: options.instagramId,
+        kind: created.kind,
+      };
+    } catch (error) {
+      const messageText =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Instagram publish failed postId=${post.id}: ${messageText}`,
+      );
+      postPlatform.platformStatus = PlatformPostStatus.FAILED;
+      postPlatform.errorMessage = messageText;
+      await this.postPlatformRepository.save(postPlatform);
+      return { status: PlatformPostStatus.FAILED, error: messageText };
     }
   }
 

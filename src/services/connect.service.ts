@@ -234,7 +234,7 @@ export class ConnectService {
     const redirectUri = this.platformOAuthService.getRedirectUri('pinterest');
     const scopes = (
       this.configService.get<string>('PINTEREST_SCOPES') ??
-      'boards:read pins:read user_accounts:read'
+      'boards:read pins:read pins:write user_accounts:read'
     )
       .split(/[\s,]+/)
       .filter(Boolean);

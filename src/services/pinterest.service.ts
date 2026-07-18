@@ -153,6 +153,102 @@ export class PinterestService {
     };
   }
 
+  /**
+   * Create a Pin on a board via POST /v5/pins.
+   * Image pins use public S3 URLs (image_url / multiple_image_urls).
+   */
+  async createPin(
+    accessToken: string,
+    input: {
+      boardId: string;
+      title?: string | null;
+      description?: string | null;
+      link?: string | null;
+      altText?: string | null;
+      imageUrls: string[];
+    },
+  ) {
+    const boardId = input.boardId?.trim();
+    if (!boardId) {
+      throw new BadRequestException('Pinterest boardId is required');
+    }
+
+    const imageUrls = (input.imageUrls ?? [])
+      .map((url) => url?.trim())
+      .filter(Boolean);
+
+    if (!imageUrls.length) {
+      throw new BadRequestException(
+        'Pinterest pin requires at least one public image URL',
+      );
+    }
+
+    const media_source =
+      imageUrls.length === 1
+        ? {
+            source_type: 'image_url',
+            url: imageUrls[0],
+          }
+        : {
+            source_type: 'multiple_image_urls',
+            items: imageUrls.slice(0, 5).map((url) => ({ url })),
+          };
+
+    const body: Record<string, unknown> = {
+      board_id: boardId,
+      media_source,
+    };
+
+    if (input.title?.trim()) {
+      body.title = input.title.trim().slice(0, 100);
+    }
+    if (input.description?.trim()) {
+      body.description = input.description.trim().slice(0, 800);
+    }
+    if (input.link?.trim()) {
+      body.link = input.link.trim().slice(0, 2048);
+    }
+    if (input.altText?.trim()) {
+      body.alt_text = input.altText.trim().slice(0, 500);
+    }
+
+    const { data } = await this.request(
+      'POST',
+      'https://api.pinterest.com/v5/pins',
+      accessToken,
+      body,
+    );
+
+    const pin = data as {
+      id?: string;
+      [key: string]: unknown;
+    };
+
+    this.logger.log(
+      `Created Pinterest pin boardId=${boardId} pinId=${pin.id ?? 'unknown'}`,
+    );
+
+    return {
+      pinId: pin.id ?? null,
+      pin,
+    };
+  }
+
+  async createPinForUser(
+    userId: string,
+    input: {
+      boardId: string;
+      title?: string | null;
+      description?: string | null;
+      link?: string | null;
+      altText?: string | null;
+      imageUrls: string[];
+    },
+  ) {
+    const accessToken = await this.resolveAccessToken(userId);
+    return this.createPin(accessToken, input);
+  }
+
   async collectConnectData(accessToken: string) {
     const profile = await this.getUserProfile(accessToken);
 
