@@ -85,6 +85,105 @@ export class GoogleService {
     return this.mapTokenResponse(data);
   }
 
+  /**
+   * Refresh Google access token for a connected user and persist it.
+   * Intended for cron / ops: GET /google/refresh-token?userId=...
+   */
+  async refreshAccessTokenByUserId(userId: string) {
+    const account =
+      await this.socialAccountsService.findActiveByUserAndPlatform(
+        userId,
+        'google',
+      );
+
+    if (!account.refreshToken) {
+      throw new UnauthorizedException(
+        'No Google refresh token stored for this user. Reconnect Google.',
+      );
+    }
+
+    const refreshed = await this.refreshToken(account.refreshToken);
+    const updated = await this.socialAccountsService.updateTokens(
+      account.id,
+      refreshed,
+    );
+
+    this.logger.log(
+      `Refreshed Google access token for user=${userId} account=${updated.id}`,
+    );
+
+    return {
+      message: 'Google access token refreshed successfully',
+      userId,
+      accountId: updated.id,
+      expiresAt: updated.expiresAt,
+      lastSyncedAt: updated.lastSyncedAt,
+    };
+  }
+
+  /**
+   * Refresh all active Google social accounts (for a single cron run).
+   */
+  async refreshAllAccessTokens() {
+    const accounts =
+      await this.socialAccountsService.findAllActiveByPlatform('google');
+
+    const results: Array<{
+      userId: string;
+      accountId: string;
+      status: 'refreshed' | 'skipped' | 'failed';
+      expiresAt?: Date | null;
+      error?: string;
+    }> = [];
+
+    for (const account of accounts) {
+      if (!account.refreshToken) {
+        results.push({
+          userId: account.userId,
+          accountId: account.id,
+          status: 'skipped',
+          error: 'missing_refresh_token',
+        });
+        continue;
+      }
+
+      try {
+        const refreshed = await this.refreshToken(account.refreshToken);
+        const updated = await this.socialAccountsService.updateTokens(
+          account.id,
+          refreshed,
+        );
+        results.push({
+          userId: account.userId,
+          accountId: updated.id,
+          status: 'refreshed',
+          expiresAt: updated.expiresAt,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          `Failed refreshing Google token for user=${account.userId}: ${message}`,
+        );
+        results.push({
+          userId: account.userId,
+          accountId: account.id,
+          status: 'failed',
+          error: message,
+        });
+      }
+    }
+
+    return {
+      message: 'Google token refresh job finished',
+      total: accounts.length,
+      refreshed: results.filter((r) => r.status === 'refreshed').length,
+      skipped: results.filter((r) => r.status === 'skipped').length,
+      failed: results.filter((r) => r.status === 'failed').length,
+      results,
+    };
+  }
+
   async getUserProfile(accessToken: string) {
     const { data } = await this.request(
       'GET',

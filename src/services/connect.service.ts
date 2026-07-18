@@ -64,6 +64,13 @@ export class ConnectService {
     }
   }
 
+  async disconnect(platform: ConnectPlatform, userId: string) {
+    return this.socialAccountsService.disconnectByUserAndPlatform(
+      userId,
+      platform,
+    );
+  }
+
   async handleCallback(platform: ConnectPlatform, query: OAuthCallbackQuery) {
     if (query.error) {
       this.logger.warn(

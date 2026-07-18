@@ -60,6 +60,27 @@ export class SocialAccountsService {
     return account;
   }
 
+  async findAllActiveByPlatform(
+    platformSlug: ConnectPlatform,
+  ): Promise<SocialAccount[]> {
+    const platform = await this.socialPlatformsRepository.findOne({
+      where: { slug: platformSlug },
+    });
+
+    if (!platform) {
+      throw new NotFoundException(
+        `Platform "${platformSlug}" is not seeded. Run npm run seed.`,
+      );
+    }
+
+    return this.socialAccountsRepository.find({
+      where: {
+        platformId: platform.id,
+        status: SocialAccountStatus.ACTIVE,
+      },
+    });
+  }
+
   async updateTokens(
     accountId: string,
     token: OAuthTokenResult,
@@ -89,6 +110,57 @@ export class SocialAccountsService {
       lastSyncedAt: new Date(),
       status: SocialAccountStatus.ACTIVE,
     });
+  }
+
+  async disconnectByUserAndPlatform(
+    userId: string,
+    platformSlug: ConnectPlatform,
+  ) {
+    const platform = await this.socialPlatformsRepository.findOne({
+      where: { slug: platformSlug },
+    });
+
+    if (!platform) {
+      throw new NotFoundException(
+        `Platform "${platformSlug}" is not seeded. Run npm run seed.`,
+      );
+    }
+
+    const account = await this.socialAccountsRepository.findOne({
+      where: {
+        userId,
+        platformId: platform.id,
+      },
+    });
+
+    if (!account) {
+      throw new NotFoundException(
+        `No connected ${platformSlug} account found for this user.`,
+      );
+    }
+
+    // accessToken column is NOT NULL — clear with empty string.
+    const updated = await this.socialAccountsRepository.save({
+      ...account,
+      accessToken: '',
+      refreshToken: null,
+      tokenType: null,
+      expiresAt: null,
+      scopes: null,
+      status: SocialAccountStatus.DISCONNECTED,
+      lastSyncedAt: new Date(),
+    });
+
+    this.logger.log(
+      `Disconnected ${platformSlug} account ${updated.id} for user=${userId}`,
+    );
+
+    return {
+      message: `${platformSlug} account disconnected successfully`,
+      platform: platformSlug,
+      accountId: updated.id,
+      status: updated.status,
+    };
   }
 
   async upsertFromOAuth(

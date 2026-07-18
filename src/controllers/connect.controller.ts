@@ -1,4 +1,12 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ConnectQueryDto } from '../connect/dto/connect-query.dto';
@@ -14,6 +22,13 @@ export class ConnectController {
   @UseGuards(JwtAuthGuard)
   connect(@Query() query: ConnectQueryDto, @CurrentUser() user: User) {
     return this.connectService.getAuthorizationUrl(query.platform, user.id);
+  }
+
+  @Post('disconnect')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  disconnect(@Query() query: ConnectQueryDto, @CurrentUser() user: User) {
+    return this.connectService.disconnect(query.platform, user.id);
   }
 
   @Get('google/callback')
