@@ -1,9 +1,48 @@
+import { Transform } from 'class-transformer';
 import {
+  IsBoolean,
   IsDateString,
+  IsEnum,
+  IsNotEmpty,
   IsOptional,
   IsString,
+  IsUrl,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
+
+export const GOOGLE_CTA_ACTION_TYPES = [
+  'BOOK',
+  'ORDER',
+  'SHOP',
+  'LEARN_MORE',
+  'SIGN_UP',
+  'CALL',
+] as const;
+
+export type GoogleCtaActionType = (typeof GOOGLE_CTA_ACTION_TYPES)[number];
+
+const CTA_ACTIONS_REQUIRING_URL: GoogleCtaActionType[] = [
+  'BOOK',
+  'ORDER',
+  'SHOP',
+  'LEARN_MORE',
+  'SIGN_UP',
+];
+
+function toBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes';
+  }
+  if (typeof value === 'number') {
+    return value === 1;
+  }
+  return false;
+}
 
 export class CreatePostDto {
   @IsOptional()
@@ -19,4 +58,35 @@ export class CreatePostDto {
   @IsOptional()
   @IsDateString()
   scheduledAt?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  googlePost?: boolean;
+
+  @ValidateIf((o: CreatePostDto) => o.googlePost === true)
+  @IsString()
+  @IsNotEmpty()
+  googleAccountId?: string;
+
+  @ValidateIf((o: CreatePostDto) => o.googlePost === true)
+  @IsString()
+  @IsNotEmpty()
+  googleLocationId?: string;
+
+  @ValidateIf((o: CreatePostDto) => o.googlePost === true)
+  @IsEnum(GOOGLE_CTA_ACTION_TYPES)
+  googleCtaActionType?: GoogleCtaActionType;
+
+  @ValidateIf(
+    (o: CreatePostDto) =>
+      o.googlePost === true &&
+      !!o.googleCtaActionType &&
+      CTA_ACTIONS_REQUIRING_URL.includes(o.googleCtaActionType),
+  )
+  @IsString()
+  @IsNotEmpty()
+  @IsUrl({ require_tld: false })
+  @MaxLength(2048)
+  googleCtaUrl?: string;
 }

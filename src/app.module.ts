@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { HttpModule } from '@nestjs/axios';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtStrategy } from './auth/strategies/jwt.strategy';
 import { buildDatabaseOptions } from './config/database.config';
@@ -22,6 +23,7 @@ import { Lead } from './entities/lead.entity';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { Post } from './entities/post.entity';
 import { PostMedia } from './entities/post-media.entity';
+import { PostPlatform } from './entities/post-platform.entity';
 import { SocialAccount } from './entities/social-account.entity';
 import { SocialPlatform } from './entities/social-platform.entity';
 import { User } from './entities/user.entity';
@@ -44,6 +46,7 @@ import {
   UsersService,
   XService,
 } from './services';
+import { PostsSchedulerService } from './services/posts.scheduler';
 
 @Module({
   imports: [
@@ -51,6 +54,7 @@ import {
       isGlobal: true,
       envFilePath: '.env',
     }),
+    ScheduleModule.forRoot(),
     HttpModule,
     TypeOrmModule.forRootAsync({
       useFactory: () => ({
@@ -66,6 +70,7 @@ import {
       SocialAccount,
       Post,
       PostMedia,
+      PostPlatform,
     ]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
@@ -114,6 +119,7 @@ import {
     S3Service,
     PusherService,
     PostsService,
+    PostsSchedulerService,
     JwtStrategy,
   ],
 })
