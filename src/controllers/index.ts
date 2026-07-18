@@ -5,3 +5,4 @@ export { ContactController } from './contact.controller';
 export { GoogleController } from './google.controller';
 export { MetaController } from './meta.controller';
 export { PinterestController } from './pinterest.controller';
+export { XController } from './x.controller';

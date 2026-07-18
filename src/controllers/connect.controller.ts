@@ -60,4 +60,9 @@ export class ConnectController {
   threadCallback(@Query() query: OAuthCallbackQuery) {
     return this.connectService.handleCallback('thread', query);
   }
+
+  @Get('x/callback')
+  xCallback(@Query() query: OAuthCallbackQuery) {
+    return this.connectService.handleCallback('x', query);
+  }
 }

@@ -11,3 +11,4 @@ export { PlatformOAuthService } from './platform-oauth.service';
 export { SocialAccountsService } from './social-accounts.service';
 export { ThreadsService } from './threads.service';
 export { UsersService } from './users.service';
+export { XService } from './x.service';

@@ -16,6 +16,7 @@ import { GoogleService } from './google.service';
 import { MetaService } from './meta.service';
 import { PinterestService } from './pinterest.service';
 import { ThreadsService } from './threads.service';
+import { XService } from './x.service';
 
 @Injectable()
 export class PlatformOAuthService {
@@ -28,6 +29,7 @@ export class PlatformOAuthService {
     private readonly pinterestService: PinterestService,
     private readonly metaService: MetaService,
     private readonly threadsService: ThreadsService,
+    private readonly xService: XService,
   ) {}
 
   getRedirectUri(platform: ConnectPlatform): string {
@@ -43,6 +45,9 @@ export class PlatformOAuthService {
     if (platform === 'thread') {
       return this.threadsService.getRedirectUri();
     }
+    if (platform === 'x') {
+      return this.xService.getRedirectUri();
+    }
 
     const appUrl = this.configService
       .getOrThrow<string>('APP_URL')
@@ -52,6 +57,7 @@ export class PlatformOAuthService {
       google: 'GOOGLE_REDIRECT_URI',
       meta: 'META_REDIRECT_URI',
       thread: 'THREAD_REDIRECT_URI',
+      x: 'X_REDIRECT_URI',
       linkedin: 'LINKEDIN_REDIRECT_URI',
       pinterest: 'PINTEREST_REDIRECT_URI',
       tiktok: 'TIKTOK_REDIRECT_URI',
@@ -66,6 +72,7 @@ export class PlatformOAuthService {
   async getAccessToken(
     platform: ConnectPlatform,
     code: string,
+    options?: { codeVerifier?: string },
   ): Promise<OAuthTokenResult> {
     switch (platform) {
       case 'google':
@@ -74,6 +81,12 @@ export class PlatformOAuthService {
         return this.metaService.getAccessToken(code);
       case 'thread':
         return this.threadsService.getAccessToken(code);
+      case 'x': {
+        if (!options?.codeVerifier) {
+          throw new BadRequestException('Missing X PKCE code verifier');
+        }
+        return this.xService.getAccessToken(code, options.codeVerifier);
+      }
       case 'linkedin':
         return this.getLinkedinAccessToken(code);
       case 'pinterest':
@@ -98,6 +111,10 @@ export class PlatformOAuthService {
       }
       case 'thread': {
         const data = await this.threadsService.collectConnectData(accessToken);
+        return { ...data.profile, metadata: data.metadata };
+      }
+      case 'x': {
+        const data = await this.xService.collectConnectData(accessToken);
         return { ...data.profile, metadata: data.metadata };
       }
       case 'linkedin':

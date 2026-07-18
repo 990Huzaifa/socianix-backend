@@ -14,6 +14,7 @@ import {
   GoogleController,
   MetaController,
   PinterestController,
+  XController,
 } from './controllers';
 import { Lead } from './entities/lead.entity';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
@@ -34,6 +35,7 @@ import {
   SocialAccountsService,
   ThreadsService,
   UsersService,
+  XService,
 } from './services';
 
 @Module({
@@ -82,6 +84,7 @@ import {
     GoogleController,
     MetaController,
     PinterestController,
+    XController,
   ],
   providers: [
     AppService,
@@ -95,6 +98,7 @@ import {
     MetaService,
     PinterestService,
     ThreadsService,
+    XService,
     SocialAccountsService,
     PasswordResetTokenService,
     JwtStrategy,

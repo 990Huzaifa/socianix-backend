@@ -17,6 +17,7 @@ import { PlatformOAuthService } from './platform-oauth.service';
 import { SocialAccountsService } from './social-accounts.service';
 import { MetaService } from './meta.service';
 import { ThreadsService } from './threads.service';
+import { XService } from './x.service';
 
 @Injectable()
 export class ConnectService {
@@ -29,6 +30,7 @@ export class ConnectService {
     private readonly socialAccountsService: SocialAccountsService,
     private readonly metaService: MetaService,
     private readonly threadsService: ThreadsService,
+    private readonly xService: XService,
   ) {}
 
   getAuthorizationUrl(platform: ConnectPlatform, userId: string) {
@@ -56,6 +58,11 @@ export class ConnectService {
           authorizationUrl: this.threadsService.getAuthorizationUrl(
             this.signState('thread', userId),
           ),
+        };
+      case 'x':
+        return {
+          platform,
+          authorizationUrl: this.getXAuthorizationUrl(userId),
         };
       default:
         throw new BadRequestException(
@@ -99,10 +106,12 @@ export class ConnectService {
     code: string,
     state?: string,
   ) {
-    const userId = this.verifyState(state, platform);
+    const payload = this.verifyState(state, platform);
+    const userId = payload.sub;
     const token = await this.platformOAuthService.getAccessToken(
       platform,
       code,
+      { codeVerifier: payload.codeVerifier },
     );
 
     let profile: OAuthProfileInfo;
@@ -150,7 +159,7 @@ export class ConnectService {
   private verifyState(
     state: string | undefined,
     platform: ConnectPlatform,
-  ): string {
+  ): OAuthStatePayload {
     if (!state) {
       throw new BadRequestException('Missing OAuth state');
     }
@@ -169,19 +178,30 @@ export class ConnectService {
       throw new BadRequestException('Invalid OAuth state');
     }
 
-    return payload.sub;
+    return payload;
   }
 
-  private signState(platform: ConnectPlatform, userId: string): string {
+  private signState(
+    platform: ConnectPlatform,
+    userId: string,
+    extra?: Pick<OAuthStatePayload, 'codeVerifier'>,
+  ): string {
     return this.jwtService.sign(
       {
         sub: userId,
         platform,
         purpose: 'social-connect',
         nonce: randomUUID(),
+        ...extra,
       },
       { expiresIn: '10m' },
     );
+  }
+
+  private getXAuthorizationUrl(userId: string): string {
+    const { codeVerifier, codeChallenge } = this.xService.createPkcePair();
+    const state = this.signState('x', userId, { codeVerifier });
+    return this.xService.getAuthorizationUrl(state, codeChallenge);
   }
 
   private getGoogleAuthorizationUrl(userId: string): string {

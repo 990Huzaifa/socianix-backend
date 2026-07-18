@@ -43,6 +43,14 @@ export const SOCIAL_PLATFORM_SEEDS: SocialPlatformSeed[] = [
     status: SocialPlatformStatus.ACTIVE,
   },
   {
+    name: 'X',
+    slug: 'x',
+    description: 'Connect your X (Twitter) account.',
+    icon: null,
+    logo: null,
+    status: SocialPlatformStatus.ACTIVE,
+  },
+  {
     name: 'LinkedIn',
     slug: 'linkedin',
     description: 'Connect your LinkedIn account.',

@@ -5,6 +5,8 @@ export type OAuthStatePayload = {
   platform: ConnectPlatform;
   purpose: 'social-connect';
   nonce: string;
+  /** PKCE verifier for X (Twitter) OAuth 2.0 */
+  codeVerifier?: string;
 };
 
 export type OAuthTokenResult = {
