@@ -25,6 +25,12 @@ export class GoogleController {
     return this.googleService.getBusinessProfilesForUser(user.id);
   }
 
+  @Get('youtube-channels')
+  @UseGuards(JwtAuthGuard)
+  getYouTubeChannels(@CurrentUser() user: User) {
+    return this.googleService.getYouTubeChannelsForUser(user.id);
+  }
+
   /**
    * Cron / ops endpoint.
    * - With ?userId=... refreshes that user's Google token

@@ -24,6 +24,41 @@ type GoogleLocation = {
   [key: string]: unknown;
 };
 
+type YouTubeChannel = {
+  id?: string;
+  snippet?: {
+    title?: string;
+    description?: string;
+    customUrl?: string;
+    publishedAt?: string;
+    thumbnails?: {
+      default?: { url?: string };
+      medium?: { url?: string };
+      high?: { url?: string };
+    };
+    country?: string;
+    defaultLanguage?: string;
+  };
+  contentDetails?: {
+    relatedPlaylists?: {
+      uploads?: string;
+      likes?: string;
+    };
+  };
+  statistics?: {
+    viewCount?: string;
+    subscriberCount?: string;
+    hiddenSubscriberCount?: boolean;
+    videoCount?: string;
+  };
+  status?: {
+    privacyStatus?: string;
+    isLinked?: boolean;
+    madeForKids?: boolean;
+  };
+  [key: string]: unknown;
+};
+
 @Injectable()
 export class GoogleService {
   private readonly logger = new Logger(GoogleService.name);
@@ -240,6 +275,77 @@ export class GoogleService {
   async getBusinessProfilesForUser(userId: string) {
     const accessToken = await this.resolveAccessToken(userId);
     return this.getBusinessProfiles(accessToken);
+  }
+
+  /**
+   * Uses the stored Google token for the user and returns all YouTube
+   * channels owned by that Google account (a user may have several).
+   */
+  async getYouTubeChannelsForUser(userId: string) {
+    const accessToken = await this.resolveAccessToken(userId);
+    return this.getYouTubeChannels(accessToken);
+  }
+
+  async getYouTubeChannels(accessToken: string) {
+    const channels: YouTubeChannel[] = [];
+    let pageToken: string | undefined;
+
+    do {
+      const params = new URLSearchParams({
+        part: 'snippet,contentDetails,statistics,status',
+        mine: 'true',
+        maxResults: '50',
+      });
+      if (pageToken) {
+        params.set('pageToken', pageToken);
+      }
+
+      const { data } = await this.request(
+        'GET',
+        `https://www.googleapis.com/youtube/v3/channels?${params.toString()}`,
+        accessToken,
+      );
+
+      const page = data as {
+        items?: YouTubeChannel[];
+        nextPageToken?: string;
+      };
+
+      channels.push(...(page.items ?? []));
+      pageToken = page.nextPageToken;
+    } while (pageToken);
+
+    return {
+      channels: channels.map((channel) => ({
+        channelId: channel.id ?? null,
+        title: channel.snippet?.title ?? null,
+        customUrl: channel.snippet?.customUrl ?? null,
+        description: channel.snippet?.description ?? null,
+        thumbnail:
+          channel.snippet?.thumbnails?.high?.url ??
+          channel.snippet?.thumbnails?.medium?.url ??
+          channel.snippet?.thumbnails?.default?.url ??
+          null,
+        country: channel.snippet?.country ?? null,
+        publishedAt: channel.snippet?.publishedAt ?? null,
+        uploadsPlaylistId:
+          channel.contentDetails?.relatedPlaylists?.uploads ?? null,
+        statistics: {
+          viewCount: channel.statistics?.viewCount ?? null,
+          subscriberCount: channel.statistics?.subscriberCount ?? null,
+          hiddenSubscriberCount:
+            channel.statistics?.hiddenSubscriberCount ?? null,
+          videoCount: channel.statistics?.videoCount ?? null,
+        },
+        status: {
+          privacyStatus: channel.status?.privacyStatus ?? null,
+          isLinked: channel.status?.isLinked ?? null,
+          madeForKids: channel.status?.madeForKids ?? null,
+        },
+        channel,
+      })),
+      totalChannels: channels.length,
+    };
   }
 
   async getBusinessProfiles(accessToken: string) {
