@@ -3,6 +3,7 @@ export { AuthController } from './auth.controller';
 export { ConnectController } from './connect.controller';
 export { ContactController } from './contact.controller';
 export { GoogleController } from './google.controller';
+export { LinkedInController } from './linkedin.controller';
 export { MetaController } from './meta.controller';
 export { PinterestController } from './pinterest.controller';
 export { PostsController } from './posts.controller';

@@ -15,6 +15,7 @@ import {
 } from '../connect/types/oauth.types';
 import { PlatformOAuthService } from './platform-oauth.service';
 import { SocialAccountsService } from './social-accounts.service';
+import { LinkedInService } from './linkedin.service';
 import { MetaService } from './meta.service';
 import { ThreadsService } from './threads.service';
 import { XService } from './x.service';
@@ -31,6 +32,7 @@ export class ConnectService {
     private readonly metaService: MetaService,
     private readonly threadsService: ThreadsService,
     private readonly xService: XService,
+    private readonly linkedInService: LinkedInService,
   ) {}
 
   getAuthorizationUrl(platform: ConnectPlatform, userId: string) {
@@ -63,6 +65,13 @@ export class ConnectService {
         return {
           platform,
           authorizationUrl: this.getXAuthorizationUrl(userId),
+        };
+      case 'linkedin':
+        return {
+          platform,
+          authorizationUrl: this.linkedInService.getAuthorizationUrl(
+            this.signState('linkedin', userId),
+          ),
         };
       default:
         throw new BadRequestException(
