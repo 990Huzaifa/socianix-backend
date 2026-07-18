@@ -4,20 +4,17 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Queue } from 'bullmq';
 import { Repository } from 'typeorm';
 import { Post, PostStatus } from '../entities/post.entity';
 import { PostMedia, PostMediaType } from '../entities/post-media.entity';
 import { CreatePostDto } from '../posts/dto/create-post.dto';
-import { POST_JOBS, POSTS_QUEUE } from '../posts/post.constants';
+import {
+  PUSHER_EVENTS,
+  userPrivateChannel,
+} from '../posts/post.constants';
+import { PusherService } from './pusher.service';
 import { S3Service } from './s3.service';
-
-export type ProcessCreatePostJob = {
-  postId: string;
-  userId: string;
-};
 
 type UploadedMediaFile = {
   buffer: Buffer;
@@ -35,13 +32,13 @@ export class PostsService {
     private readonly postsRepository: Repository<Post>,
     @InjectRepository(PostMedia)
     private readonly postMediaRepository: Repository<PostMedia>,
-    @InjectQueue(POSTS_QUEUE)
-    private readonly postsQueue: Queue<ProcessCreatePostJob>,
     private readonly s3Service: S3Service,
+    private readonly pusherService: PusherService,
   ) {}
 
   /**
-   * Uploads media to S3, saves post + S3 URLs in DB, then enqueues processing.
+   * Uploads media to S3, saves post + S3 URLs in DB, returns immediately,
+   * then finishes work in a Node background task and notifies via Pusher.
    * Platform publishing is intentionally not wired yet.
    */
   async create(
@@ -95,25 +92,21 @@ export class PostsService {
       await this.postMediaRepository.save(mediaRows);
     }
 
-    await this.postsQueue.add(
-      POST_JOBS.PROCESS_CREATE,
-      { postId: post.id, userId },
-      {
-        removeOnComplete: 100,
-        removeOnFail: 200,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 2000 },
-      },
-    );
+    // Fire-and-forget Node background work (no Redis / BullMQ).
+    setImmediate(() => {
+      void this.processCreateInBackground(post.id, userId);
+    });
 
-    this.logger.log(`Queued post create job postId=${post.id} user=${userId}`);
+    this.logger.log(
+      `Post create accepted; background processing started postId=${post.id} user=${userId}`,
+    );
 
     return {
       message: 'Post is processing',
       status: 'processing',
       postId: post.id,
-      channel: `private-user-${userId}`,
-      event: 'post.processed',
+      channel: userPrivateChannel(userId),
+      event: PUSHER_EVENTS.POST_PROCESSED,
     };
   }
 
@@ -140,7 +133,55 @@ export class PostsService {
     return post;
   }
 
-  async getOwnedPost(postId: string, userId: string): Promise<Post> {
+  private async processCreateInBackground(postId: string, userId: string) {
+    this.logger.log(`Background processing postId=${postId}`);
+
+    try {
+      const post = await this.finalizeCreateProcessing(postId, userId);
+
+      await this.pusherService.triggerUserEvent(
+        userId,
+        PUSHER_EVENTS.POST_PROCESSED,
+        {
+          postId: post.id,
+          status: post.status,
+          message: 'Post processing completed',
+          channel: userPrivateChannel(userId),
+          post: {
+            id: post.id,
+            title: post.title,
+            caption: post.caption,
+            status: post.status,
+            scheduledAt: post.scheduledAt,
+            publishedAt: post.publishedAt,
+            media: post.media ?? [],
+            createdAt: post.createdAt,
+            updatedAt: post.updatedAt,
+          },
+        },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.markCreateFailed(postId, userId, message);
+
+      await this.pusherService.triggerUserEvent(
+        userId,
+        PUSHER_EVENTS.POST_PROCESSED,
+        {
+          postId,
+          status: 'Failed',
+          message: 'Post processing failed',
+          error: message,
+          channel: userPrivateChannel(userId),
+        },
+      );
+    }
+  }
+
+  private async finalizeCreateProcessing(
+    postId: string,
+    userId: string,
+  ): Promise<Post> {
     const post = await this.postsRepository.findOne({
       where: { id: postId, userId },
       relations: { media: true },
@@ -149,12 +190,6 @@ export class PostsService {
     if (!post) {
       throw new NotFoundException('Post not found');
     }
-
-    return post;
-  }
-
-  async finalizeCreateProcessing(postId: string, userId: string): Promise<Post> {
-    const post = await this.getOwnedPost(postId, userId);
 
     const now = Date.now();
     if (post.scheduledAt && post.scheduledAt.getTime() > now) {
@@ -168,7 +203,11 @@ export class PostsService {
     return this.postsRepository.save(post);
   }
 
-  async markCreateFailed(postId: string, userId: string, errorMessage: string) {
+  private async markCreateFailed(
+    postId: string,
+    userId: string,
+    errorMessage: string,
+  ) {
     const post = await this.postsRepository.findOne({
       where: { id: postId, userId },
     });
