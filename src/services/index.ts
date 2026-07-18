@@ -10,6 +10,7 @@ export { MetaService } from './meta.service';
 export { PinterestService } from './pinterest.service';
 export { PlatformOAuthService } from './platform-oauth.service';
 export { PostsService } from './posts.service';
+export { ProfileService } from './profile.service';
 export { PusherService } from './pusher.service';
 export { S3Service } from './s3.service';
 export { SocialAccountsService } from './social-accounts.service';

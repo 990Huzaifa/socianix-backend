@@ -55,4 +55,23 @@ export class UsersService {
     await this.usersRepository.update(userId, { isEmailVerified: true });
     return this.findByIdOrFail(userId);
   }
+
+  async updateProfile(
+    userId: string,
+    data: Partial<
+      Pick<
+        User,
+        | 'name'
+        | 'timezone'
+        | 'phone'
+        | 'avatar'
+        | 'deviceId'
+        | 'fcmToken'
+        | 'appVersion'
+      >
+    >,
+  ): Promise<User> {
+    await this.usersRepository.update(userId, data);
+    return this.findByIdOrFail(userId);
+  }
 }

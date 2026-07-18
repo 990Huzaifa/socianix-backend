@@ -81,6 +81,67 @@ export class SocialAccountsService {
     });
   }
 
+  /**
+   * List all social accounts for a user (active, disconnected, expired).
+   * Tokens are never included in the response.
+   */
+  async listForUser(userId: string) {
+    const accounts = await this.socialAccountsRepository.find({
+      where: { userId },
+      relations: { platform: true },
+      order: { connectedAt: 'DESC' },
+    });
+
+    const items = accounts.map((account) => this.toListItem(account));
+
+    const connected = items.filter(
+      (item) => item.status === SocialAccountStatus.ACTIVE,
+    );
+    const disconnected = items.filter(
+      (item) => item.status === SocialAccountStatus.DISCONNECTED,
+    );
+    const expired = items.filter(
+      (item) => item.status === SocialAccountStatus.EXPIRED,
+    );
+
+    return {
+      accounts: items,
+      connected,
+      disconnected,
+      expired,
+      total: items.length,
+      counts: {
+        active: connected.length,
+        disconnected: disconnected.length,
+        expired: expired.length,
+      },
+    };
+  }
+
+  private toListItem(account: SocialAccount) {
+    return {
+      id: account.id,
+      platform: {
+        id: account.platform?.id ?? account.platformId,
+        name: account.platform?.name ?? null,
+        slug: account.platform?.slug ?? null,
+        icon: account.platform?.icon ?? null,
+        logo: account.platform?.logo ?? null,
+      },
+      platformUserId: account.platformUserId,
+      username: account.username,
+      displayName: account.displayName ?? null,
+      profileImage: account.profileImage ?? null,
+      status: account.status,
+      connectedAt: account.connectedAt,
+      lastSyncedAt: account.lastSyncedAt ?? null,
+      expiresAt: account.expiresAt ?? null,
+      scopes: account.scopes ?? null,
+      createdAt: account.createdAt,
+      updatedAt: account.updatedAt,
+    };
+  }
+
   async updateTokens(
     accountId: string,
     token: OAuthTokenResult,
