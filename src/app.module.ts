@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { HttpModule } from '@nestjs/axios';
+import { BullModule } from '@nestjs/bullmq';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -14,13 +15,18 @@ import {
   GoogleController,
   MetaController,
   PinterestController,
+  PostsController,
+  PusherController,
   XController,
 } from './controllers';
 import { Lead } from './entities/lead.entity';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
+import { Post } from './entities/post.entity';
+import { PostMedia } from './entities/post-media.entity';
 import { SocialAccount } from './entities/social-account.entity';
 import { SocialPlatform } from './entities/social-platform.entity';
 import { User } from './entities/user.entity';
+import { POSTS_QUEUE } from './posts/post.constants';
 import {
   AppService,
   AuthService,
@@ -32,11 +38,15 @@ import {
   GoogleService,
   MetaService,
   PinterestService,
+  PostsService,
+  PusherService,
+  S3Service,
   SocialAccountsService,
   ThreadsService,
   UsersService,
   XService,
 } from './services';
+import { PostsProcessor } from './services/posts.processor';
 
 @Module({
   imports: [
@@ -45,6 +55,18 @@ import {
       envFilePath: '.env',
     }),
     HttpModule,
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        connection: {
+          host: configService.get<string>('REDIS_HOST') ?? '127.0.0.1',
+          port: Number(configService.get<string>('REDIS_PORT') ?? 6379),
+          password: configService.get<string>('REDIS_PASSWORD') || undefined,
+          maxRetriesPerRequest: null,
+        },
+      }),
+    }),
+    BullModule.registerQueue({ name: POSTS_QUEUE }),
     TypeOrmModule.forRootAsync({
       useFactory: () => ({
         ...buildDatabaseOptions(),
@@ -57,6 +79,8 @@ import {
       Lead,
       SocialPlatform,
       SocialAccount,
+      Post,
+      PostMedia,
     ]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
@@ -67,7 +91,6 @@ import {
         return {
           secret: configService.getOrThrow<string>('JWT_SECRET'),
           signOptions: {
-            // Keep string values like "7d" intact. parseInt("7d") => 7 (seconds).
             expiresIn: /^\d+$/.test(expiresIn)
               ? Number(expiresIn)
               : (expiresIn as `${number}d` | `${number}h` | `${number}m` | `${number}s`),
@@ -84,6 +107,8 @@ import {
     GoogleController,
     MetaController,
     PinterestController,
+    PostsController,
+    PusherController,
     XController,
   ],
   providers: [
@@ -101,6 +126,10 @@ import {
     XService,
     SocialAccountsService,
     PasswordResetTokenService,
+    S3Service,
+    PusherService,
+    PostsService,
+    PostsProcessor,
     JwtStrategy,
   ],
 })

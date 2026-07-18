@@ -59,6 +59,78 @@ type YouTubeChannel = {
   [key: string]: unknown;
 };
 
+export type GoogleBusinessPostTopicType =
+  | 'STANDARD'
+  | 'EVENT'
+  | 'OFFER'
+  | 'ALERT';
+
+export type GoogleBusinessPostActionType =
+  | 'BOOK'
+  | 'ORDER'
+  | 'SHOP'
+  | 'LEARN_MORE'
+  | 'SIGN_UP'
+  | 'CALL'
+  | 'ACTION_TYPE_UNSPECIFIED';
+
+export type GoogleBusinessPostMediaInput = {
+  mediaFormat: 'PHOTO' | 'VIDEO';
+  sourceUrl: string;
+};
+
+export type GoogleBusinessPostDate = {
+  year: number;
+  month: number;
+  day: number;
+};
+
+export type GoogleBusinessPostTimeOfDay = {
+  hours?: number;
+  minutes?: number;
+  seconds?: number;
+  nanos?: number;
+};
+
+export type CreateGoogleBusinessPostInput = {
+  /** Post body / caption (required by Google for most topic types). */
+  summary: string;
+  languageCode?: string;
+  topicType?: GoogleBusinessPostTopicType;
+  callToAction?: {
+    actionType: GoogleBusinessPostActionType;
+    url?: string;
+  };
+  media?: GoogleBusinessPostMediaInput[];
+  event?: {
+    title: string;
+    schedule: {
+      startDate: GoogleBusinessPostDate;
+      startTime?: GoogleBusinessPostTimeOfDay;
+      endDate: GoogleBusinessPostDate;
+      endTime?: GoogleBusinessPostTimeOfDay;
+    };
+  };
+  offer?: {
+    couponCode?: string;
+    redeemOnlineUrl?: string;
+    termsConditions?: string;
+  };
+  alertType?: 'COVID_19' | 'ALERT_TYPE_UNSPECIFIED';
+};
+
+export type CreateGoogleBusinessPostTarget = {
+  /**
+   * Full parent resource name:
+   * `accounts/{accountId}/locations/{locationId}`
+   */
+  parent?: string;
+  /** Account id or `accounts/{accountId}` */
+  accountId?: string;
+  /** Location id or `locations/{locationId}` */
+  locationId?: string;
+};
+
 @Injectable()
 export class GoogleService {
   private readonly logger = new Logger(GoogleService.name);
@@ -406,6 +478,130 @@ export class GoogleService {
         0,
       ),
     };
+  }
+
+  /**
+   * Create a Google Business Profile local post for a connected user.
+   * Uses the stored Google token (refreshes if expired).
+   *
+   * Parent must be `accounts/{accountId}/locations/{locationId}`
+   * (or pass accountId + locationId separately).
+   */
+  async createBusinessPostForUser(
+    userId: string,
+    target: CreateGoogleBusinessPostTarget,
+    input: CreateGoogleBusinessPostInput,
+  ) {
+    const accessToken = await this.resolveAccessToken(userId);
+    return this.createBusinessPost(accessToken, target, input);
+  }
+
+  /**
+   * Create a Google Business Profile local post via
+   * `POST .../v4/{parent}/localPosts`.
+   *
+   * Ready for future publishing flows — not exposed as an HTTP route yet.
+   */
+  async createBusinessPost(
+    accessToken: string,
+    target: CreateGoogleBusinessPostTarget,
+    input: CreateGoogleBusinessPostInput,
+  ) {
+    const summary = input.summary?.trim();
+    if (!summary) {
+      throw new BadRequestException('Google Business post summary is required');
+    }
+
+    const parent = this.resolveLocalPostParent(target);
+    const topicType = input.topicType ?? 'STANDARD';
+
+    const body: Record<string, unknown> = {
+      languageCode: input.languageCode ?? 'en-US',
+      summary,
+      topicType,
+    };
+
+    if (input.callToAction) {
+      body.callToAction = input.callToAction;
+    }
+    if (input.media?.length) {
+      body.media = input.media;
+    }
+    if (input.event) {
+      body.event = input.event;
+    }
+    if (input.offer) {
+      body.offer = input.offer;
+    }
+    if (input.alertType) {
+      body.alertType = input.alertType;
+    }
+
+    const { data } = await this.request(
+      'POST',
+      `https://mybusiness.googleapis.com/v4/${parent}/localPosts`,
+      accessToken,
+      body,
+    );
+
+    const post = data as {
+      name?: string;
+      state?: string;
+      searchUrl?: string;
+      createTime?: string;
+      [key: string]: unknown;
+    };
+
+    this.logger.log(
+      `Created Google Business local post parent=${parent} name=${post.name ?? 'unknown'}`,
+    );
+
+    return {
+      parent,
+      postId: this.extractResourceId(post.name),
+      postName: post.name ?? null,
+      state: post.state ?? null,
+      searchUrl: post.searchUrl ?? null,
+      createTime: post.createTime ?? null,
+      post,
+    };
+  }
+
+  private resolveLocalPostParent(target: CreateGoogleBusinessPostTarget): string {
+    if (target.parent?.trim()) {
+      const parent = target.parent.trim().replace(/^\/+|\/+$/g, '');
+      if (!/^accounts\/[^/]+\/locations\/[^/]+$/.test(parent)) {
+        throw new BadRequestException(
+          'parent must be accounts/{accountId}/locations/{locationId}',
+        );
+      }
+      return parent;
+    }
+
+    const accountId = this.normalizeResourceId(target.accountId, 'accounts');
+    const locationId = this.normalizeResourceId(target.locationId, 'locations');
+
+    if (!accountId || !locationId) {
+      throw new BadRequestException(
+        'Provide parent, or both accountId and locationId, for the Business Profile post',
+      );
+    }
+
+    return `accounts/${accountId}/locations/${locationId}`;
+  }
+
+  private normalizeResourceId(
+    value: string | undefined,
+    prefix: 'accounts' | 'locations',
+  ): string | null {
+    if (!value?.trim()) {
+      return null;
+    }
+    const trimmed = value.trim().replace(/^\/+|\/+$/g, '');
+    if (trimmed.startsWith(`${prefix}/`)) {
+      return trimmed.slice(prefix.length + 1) || null;
+    }
+    return trimmed;
   }
 
   async collectConnectData(accessToken: string) {
