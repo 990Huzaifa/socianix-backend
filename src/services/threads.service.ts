@@ -81,7 +81,7 @@ export class ThreadsService {
       `https://graph.threads.net/${this.apiVersion}/me?fields=id,username,name,threads_profile_picture_url,threads_biography`,
       accessToken,
     );
-
+    console.log("RAW THREADS API RESPONSE:", JSON.stringify(data, null, 2));
     return {
       platformUserId: String(data.id),
       username: data.username ?? data.name ?? String(data.id),
