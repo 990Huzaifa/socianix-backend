@@ -18,6 +18,7 @@ import {
   userPrivateChannel,
 } from '../posts/post.constants';
 import { GoogleService } from './google.service';
+import { LinkedInService } from './linkedin.service';
 import { MetaService } from './meta.service';
 import { PinterestService } from './pinterest.service';
 import { PusherService } from './pusher.service';
@@ -81,11 +82,35 @@ type InstagramPlatformMetadata = {
   instagramId: string;
 };
 
+type LinkedInPublishOptions = {
+  postPlatformId: string;
+  link?: string | null;
+};
+
+type LinkedInPlatformMetadata = {
+  provider: 'linkedin';
+  link?: string | null;
+};
+
+type LinkedInOrganizationPublishOptions = {
+  postPlatformId: string;
+  organizationId: string;
+  link?: string | null;
+};
+
+type LinkedInOrganizationPlatformMetadata = {
+  provider: 'linkedin_organization';
+  organizationId: string;
+  link?: string | null;
+};
+
 type PlatformMetadata =
   | GooglePlatformMetadata
   | PinterestPlatformMetadata
   | FacebookPlatformMetadata
-  | InstagramPlatformMetadata;
+  | InstagramPlatformMetadata
+  | LinkedInPlatformMetadata
+  | LinkedInOrganizationPlatformMetadata;
 
 @Injectable()
 export class PostsService {
@@ -103,6 +128,7 @@ export class PostsService {
     private readonly googleService: GoogleService,
     private readonly pinterestService: PinterestService,
     private readonly metaService: MetaService,
+    private readonly linkedInService: LinkedInService,
     private readonly socialAccountsService: SocialAccountsService,
   ) {}
 
@@ -121,9 +147,12 @@ export class PostsService {
     const pinterestPost = dto.pinterestPost === true;
     const facebookPost = dto.facebookPost === true;
     const instagramPost = dto.instagramPost === true;
+    const linkedinPost = dto.linkedinPost === true;
+    const linkedinOrganizationPost = dto.linkedinOrganizationPost === true;
     let googleSocialAccountId: string | null = null;
     let pinterestSocialAccountId: string | null = null;
     let metaSocialAccountId: string | null = null;
+    let linkedinSocialAccountId: string | null = null;
 
     if (googlePost) {
       const googleAccount =
@@ -180,6 +209,29 @@ export class PostsService {
       }
     }
 
+    if (linkedinPost || linkedinOrganizationPost) {
+      const linkedinAccount =
+        await this.socialAccountsService.findActiveByUserAndPlatform(
+          userId,
+          'linkedin',
+        );
+      linkedinSocialAccountId = linkedinAccount.id;
+
+      const hasImage = files.some((file) =>
+        file.mimetype.startsWith('image/'),
+      );
+      if (
+        !dto.caption?.trim() &&
+        !dto.title?.trim() &&
+        !dto.linkedinLink?.trim() &&
+        !hasImage
+      ) {
+        throw new BadRequestException(
+          'caption, title, linkedinLink, or an image is required for LinkedIn posts',
+        );
+      }
+    }
+
     const scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : null;
 
     const post = await this.postsRepository.save(
@@ -230,6 +282,9 @@ export class PostsService {
     let pinterestOptions: PinterestPublishOptions | null = null;
     let facebookOptions: FacebookPublishOptions | null = null;
     let instagramOptions: InstagramPublishOptions | null = null;
+    let linkedinOptions: LinkedInPublishOptions | null = null;
+    let linkedinOrganizationOptions: LinkedInOrganizationPublishOptions | null =
+      null;
 
     if (googlePost && googleSocialAccountId) {
       const actionType = dto.googleCtaActionType!;
@@ -343,12 +398,66 @@ export class PostsService {
       };
     }
 
+    if (linkedinPost && linkedinSocialAccountId) {
+      const metadata: LinkedInPlatformMetadata = {
+        provider: 'linkedin',
+        link: dto.linkedinLink?.trim() || null,
+      };
+
+      const postPlatform = await this.postPlatformRepository.save(
+        this.postPlatformRepository.create({
+          postId: post.id,
+          socialAccountId: linkedinSocialAccountId,
+          socialPageId: null,
+          platformStatus: PlatformPostStatus.PENDING,
+          platformPostId: null,
+          publishedAt: null,
+          errorMessage: null,
+          metadata,
+        }),
+      );
+
+      linkedinOptions = {
+        postPlatformId: postPlatform.id,
+        link: metadata.link,
+      };
+    }
+
+    if (linkedinOrganizationPost && linkedinSocialAccountId) {
+      const metadata: LinkedInOrganizationPlatformMetadata = {
+        provider: 'linkedin_organization',
+        organizationId: dto.linkedinOrganizationId!,
+        link: dto.linkedinLink?.trim() || null,
+      };
+
+      const postPlatform = await this.postPlatformRepository.save(
+        this.postPlatformRepository.create({
+          postId: post.id,
+          socialAccountId: linkedinSocialAccountId,
+          socialPageId: null,
+          platformStatus: PlatformPostStatus.PENDING,
+          platformPostId: null,
+          publishedAt: null,
+          errorMessage: null,
+          metadata,
+        }),
+      );
+
+      linkedinOrganizationOptions = {
+        postPlatformId: postPlatform.id,
+        organizationId: metadata.organizationId,
+        link: metadata.link,
+      };
+    }
+
     setImmediate(() => {
       void this.processCreateInBackground(post.id, userId, {
         google: googleOptions,
         pinterest: pinterestOptions,
         facebook: facebookOptions,
         instagram: instagramOptions,
+        linkedin: linkedinOptions,
+        linkedinOrganization: linkedinOrganizationOptions,
       });
     });
 
@@ -366,6 +475,8 @@ export class PostsService {
       pinterestPost,
       facebookPost,
       instagramPost,
+      linkedinPost,
+      linkedinOrganizationPost,
     };
   }
 
@@ -455,6 +566,8 @@ export class PostsService {
         const pinterestResults: Record<string, unknown>[] = [];
         const facebookResults: Record<string, unknown>[] = [];
         const instagramResults: Record<string, unknown>[] = [];
+        const linkedinResults: Record<string, unknown>[] = [];
+        const linkedinOrganizationResults: Record<string, unknown>[] = [];
 
         for (const platform of pendingPlatforms) {
           const meta = platform.metadata as PlatformMetadata | null;
@@ -493,6 +606,21 @@ export class PostsService {
               await this.publishInstagramPost(post.userId, post, {
                 postPlatformId: platform.id,
                 instagramId: meta.instagramId,
+              }),
+            );
+          } else if (meta.provider === 'linkedin') {
+            linkedinResults.push(
+              await this.publishLinkedInAccountPost(post.userId, post, {
+                postPlatformId: platform.id,
+                link: meta.link ?? null,
+              }),
+            );
+          } else if (meta.provider === 'linkedin_organization') {
+            linkedinOrganizationResults.push(
+              await this.publishLinkedInOrganizationPost(post.userId, post, {
+                postPlatformId: platform.id,
+                organizationId: meta.organizationId,
+                link: meta.link ?? null,
               }),
             );
           }
@@ -541,6 +669,10 @@ export class PostsService {
             facebookResults,
             instagram: instagramResults[0] ?? null,
             instagramResults,
+            linkedin: linkedinResults[0] ?? null,
+            linkedinResults,
+            linkedinOrganization: linkedinOrganizationResults[0] ?? null,
+            linkedinOrganizationResults,
             platforms,
             post: {
               id: post.id,
@@ -585,6 +717,8 @@ export class PostsService {
       pinterest: PinterestPublishOptions | null;
       facebook: FacebookPublishOptions | null;
       instagram: InstagramPublishOptions | null;
+      linkedin: LinkedInPublishOptions | null;
+      linkedinOrganization: LinkedInOrganizationPublishOptions | null;
     },
   ) {
     this.logger.log(`Background processing postId=${postId}`);
@@ -595,6 +729,8 @@ export class PostsService {
       let pinterestResult: Record<string, unknown> | null = null;
       let facebookResult: Record<string, unknown> | null = null;
       let instagramResult: Record<string, unknown> | null = null;
+      let linkedinResult: Record<string, unknown> | null = null;
+      let linkedinOrganizationResult: Record<string, unknown> | null = null;
 
       if (options.google) {
         googleResult = await this.publishGoogleBusinessPost(
@@ -624,6 +760,21 @@ export class PostsService {
           options.instagram,
         );
       }
+      if (options.linkedin) {
+        linkedinResult = await this.publishLinkedInAccountPost(
+          userId,
+          post,
+          options.linkedin,
+        );
+      }
+      if (options.linkedinOrganization) {
+        linkedinOrganizationResult =
+          await this.publishLinkedInOrganizationPost(
+            userId,
+            post,
+            options.linkedinOrganization,
+          );
+      }
 
       const platforms = await this.postPlatformRepository.find({
         where: { postId },
@@ -641,6 +792,8 @@ export class PostsService {
           pinterest: pinterestResult,
           facebook: facebookResult,
           instagram: instagramResult,
+          linkedin: linkedinResult,
+          linkedinOrganization: linkedinOrganizationResult,
           platforms,
           post: {
             id: post.id,
@@ -1000,6 +1153,133 @@ export class PostsService {
         error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Instagram publish failed postId=${post.id}: ${messageText}`,
+      );
+      postPlatform.platformStatus = PlatformPostStatus.FAILED;
+      postPlatform.errorMessage = messageText;
+      await this.postPlatformRepository.save(postPlatform);
+      return { status: PlatformPostStatus.FAILED, error: messageText };
+    }
+  }
+
+  private async publishLinkedInAccountPost(
+    userId: string,
+    post: Post,
+    options: LinkedInPublishOptions,
+  ): Promise<Record<string, unknown>> {
+    const postPlatform = await this.postPlatformRepository.findOne({
+      where: { id: options.postPlatformId },
+    });
+
+    if (!postPlatform) {
+      return { status: 'Failed', error: 'Post platform row not found' };
+    }
+
+    if (post.status === PostStatus.SCHEDULED) {
+      return {
+        status: PlatformPostStatus.PENDING,
+        skipped: true,
+        reason: 'scheduled_for_later',
+      };
+    }
+
+    postPlatform.platformStatus = PlatformPostStatus.PUBLISHING;
+    await this.postPlatformRepository.save(postPlatform);
+
+    const commentary = (post.caption?.trim() || post.title?.trim() || '').trim();
+    const imageUrls = (post.media ?? [])
+      .filter((item) => item.type !== PostMediaType.VIDEO)
+      .sort((a, b) => a.order - b.order)
+      .map((item) => item.url);
+
+    try {
+      const created = await this.linkedInService.accountPostForUser(userId, {
+        commentary: commentary || null,
+        imageUrls,
+        link: options.link,
+      });
+
+      postPlatform.platformStatus = PlatformPostStatus.PUBLISHED;
+      postPlatform.platformPostId = created.postId;
+      postPlatform.publishedAt = new Date();
+      postPlatform.errorMessage = null;
+      await this.postPlatformRepository.save(postPlatform);
+
+      return {
+        status: PlatformPostStatus.PUBLISHED,
+        platformPostId: postPlatform.platformPostId,
+        author: created.author,
+      };
+    } catch (error) {
+      const messageText =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `LinkedIn account publish failed postId=${post.id}: ${messageText}`,
+      );
+      postPlatform.platformStatus = PlatformPostStatus.FAILED;
+      postPlatform.errorMessage = messageText;
+      await this.postPlatformRepository.save(postPlatform);
+      return { status: PlatformPostStatus.FAILED, error: messageText };
+    }
+  }
+
+  private async publishLinkedInOrganizationPost(
+    userId: string,
+    post: Post,
+    options: LinkedInOrganizationPublishOptions,
+  ): Promise<Record<string, unknown>> {
+    const postPlatform = await this.postPlatformRepository.findOne({
+      where: { id: options.postPlatformId },
+    });
+
+    if (!postPlatform) {
+      return { status: 'Failed', error: 'Post platform row not found' };
+    }
+
+    if (post.status === PostStatus.SCHEDULED) {
+      return {
+        status: PlatformPostStatus.PENDING,
+        skipped: true,
+        reason: 'scheduled_for_later',
+      };
+    }
+
+    postPlatform.platformStatus = PlatformPostStatus.PUBLISHING;
+    await this.postPlatformRepository.save(postPlatform);
+
+    const commentary = (post.caption?.trim() || post.title?.trim() || '').trim();
+    const imageUrls = (post.media ?? [])
+      .filter((item) => item.type !== PostMediaType.VIDEO)
+      .sort((a, b) => a.order - b.order)
+      .map((item) => item.url);
+
+    try {
+      const created = await this.linkedInService.pagePostForUser(
+        userId,
+        options.organizationId,
+        {
+          commentary: commentary || null,
+          imageUrls,
+          link: options.link,
+        },
+      );
+
+      postPlatform.platformStatus = PlatformPostStatus.PUBLISHED;
+      postPlatform.platformPostId = created.postId;
+      postPlatform.publishedAt = new Date();
+      postPlatform.errorMessage = null;
+      await this.postPlatformRepository.save(postPlatform);
+
+      return {
+        status: PlatformPostStatus.PUBLISHED,
+        platformPostId: postPlatform.platformPostId,
+        organizationId: options.organizationId,
+        author: created.author,
+      };
+    } catch (error) {
+      const messageText =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `LinkedIn organization publish failed postId=${post.id}: ${messageText}`,
       );
       postPlatform.platformStatus = PlatformPostStatus.FAILED;
       postPlatform.errorMessage = messageText;

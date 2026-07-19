@@ -135,4 +135,31 @@ export class CreatePostDto {
   @IsString()
   @IsNotEmpty()
   instagramId?: string;
+
+  /** LinkedIn personal profile post */
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  linkedinPost?: boolean;
+
+  /** LinkedIn organization / company page post */
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  linkedinOrganizationPost?: boolean;
+
+  @ValidateIf((o: CreatePostDto) => o.linkedinOrganizationPost === true)
+  @IsString()
+  @IsNotEmpty()
+  linkedinOrganizationId?: string;
+
+  @ValidateIf(
+    (o: CreatePostDto) =>
+      o.linkedinPost === true || o.linkedinOrganizationPost === true,
+  )
+  @IsOptional()
+  @IsString()
+  @IsUrl({ require_tld: false })
+  @MaxLength(2048)
+  linkedinLink?: string;
 }
