@@ -125,16 +125,11 @@ export class CreatePostDto {
   @MaxLength(2048)
   facebookLink?: string;
 
-  /** Instagram Business post via Meta (linked from facebook-pages) */
+  /** Instagram Business post via Meta (IG id resolved from connected account) */
   @IsOptional()
   @Transform(({ value }) => toBoolean(value))
   @IsBoolean()
   instagramPost?: boolean;
-
-  @ValidateIf((o: CreatePostDto) => o.instagramPost === true)
-  @IsString()
-  @IsNotEmpty()
-  instagramId?: string;
 
   /** LinkedIn personal profile post */
   @IsOptional()

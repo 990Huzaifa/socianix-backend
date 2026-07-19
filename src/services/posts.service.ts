@@ -196,7 +196,11 @@ export class PostsService {
       metaSocialAccountId = metaAccount.id;
     }
 
+    let resolvedInstagramId: string | null = null;
     if (instagramPost) {
+      resolvedInstagramId =
+        await this.metaService.getConnectedInstagramIdForUser(userId);
+
       const hasMedia = files.some(
         (file) =>
           file.mimetype.startsWith('image/') ||
@@ -373,10 +377,10 @@ export class PostsService {
       };
     }
 
-    if (instagramPost && metaSocialAccountId) {
+    if (instagramPost && metaSocialAccountId && resolvedInstagramId) {
       const metadata: InstagramPlatformMetadata = {
         provider: 'instagram',
-        instagramId: dto.instagramId!,
+        instagramId: resolvedInstagramId,
       };
 
       const postPlatform = await this.postPlatformRepository.save(

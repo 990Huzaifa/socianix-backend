@@ -488,6 +488,62 @@ export class MetaService {
     return this.createInstagramPost(pageAccessToken, instagramId, input);
   }
 
+  /**
+   * Resolve Instagram Business account id from the connected Meta account
+   * (stored at OAuth connect in metadata.instagramAccounts). Falls back to
+   * a live Graph pages list if metadata is empty.
+   */
+  async getConnectedInstagramIdForUser(userId: string): Promise<string> {
+    const account =
+      await this.socialAccountsService.findActiveByUserAndPlatform(
+        userId,
+        'meta',
+      );
+
+    const fromMetadata = this.pickInstagramIdFromMetadata(account.metadata);
+    if (fromMetadata) {
+      return fromMetadata;
+    }
+
+    const list = await this.facebookPageList(userId);
+    const withIg = list.pages.find((page) => page.instagram?.id != null);
+    const liveId =
+      withIg?.instagram?.id != null ? String(withIg.instagram.id) : null;
+
+    if (!liveId) {
+      throw new BadRequestException(
+        'No Instagram Business account linked to your Meta connection. Reconnect Meta with an IG account linked to a Facebook Page.',
+      );
+    }
+
+    return liveId;
+  }
+
+  private pickInstagramIdFromMetadata(
+    metadata: Record<string, unknown> | null | undefined,
+  ): string | null {
+    if (!metadata || typeof metadata !== 'object') {
+      return null;
+    }
+
+    const accounts = metadata.instagramAccounts;
+    if (!Array.isArray(accounts) || accounts.length === 0) {
+      return null;
+    }
+
+    for (const entry of accounts) {
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+      const id = (entry as { id?: unknown }).id;
+      if (id != null && String(id).trim()) {
+        return String(id).trim();
+      }
+    }
+
+    return null;
+  }
+
   private async resolveInstagramPublishContext(
     userId: string,
     instagramId: string,
