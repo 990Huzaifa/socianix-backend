@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
@@ -15,6 +16,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { User } from '../entities/user.entity';
 import { CreatePostDto } from '../posts/dto/create-post.dto';
+import { ListPostsQueryDto } from '../posts/dto/list-posts-query.dto';
 import { PostsService } from '../services/posts.service';
 
 @Controller('posts')
@@ -50,8 +52,11 @@ export class PostsController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: User) {
-    return this.postsService.findAllForUser(user.id);
+  findAll(@CurrentUser() user: User, @Query() query: ListPostsQueryDto) {
+    return this.postsService.findAllForUser(user.id, {
+      page: query.page ?? 1,
+      limit: query.limit ?? 20,
+    });
   }
 
   @Get(':id')

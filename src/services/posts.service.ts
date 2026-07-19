@@ -369,14 +369,30 @@ export class PostsService {
     };
   }
 
-  async findAllForUser(userId: string) {
+  async findAllForUser(
+    userId: string,
+    options: { page?: number; limit?: number } = {},
+  ) {
+    const page = Math.max(1, options.page ?? 1);
+    const limit = Math.min(100, Math.max(1, options.limit ?? 20));
+    const skip = (page - 1) * limit;
+
+    const total = await this.postsRepository.count({ where: { userId } });
     const posts = await this.postsRepository.find({
       where: { userId },
       relations: { media: true, platforms: true },
       order: { createdAt: 'DESC' },
+      skip,
+      take: limit,
     });
 
-    return { posts, total: posts.length };
+    return {
+      posts: posts.map((post) => this.toPostResponse(post)),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
   }
 
   async findOneForUser(userId: string, postId: string) {
@@ -389,7 +405,7 @@ export class PostsService {
       throw new NotFoundException('Post not found');
     }
 
-    return post;
+    return this.toPostResponse(post);
   }
 
   /**
@@ -1046,5 +1062,42 @@ export class PostsService {
     throw new BadRequestException(
       `Unsupported media type "${mimeType}". Only image/* and video/* are allowed.`,
     );
+  }
+
+  /** Plain response object — avoids circular Post ↔ media/platforms JSON. */
+  private toPostResponse(post: Post) {
+    return {
+      id: post.id,
+      title: post.title ?? null,
+      caption: post.caption ?? null,
+      status: post.status,
+      scheduledAt: post.scheduledAt ?? null,
+      publishedAt: post.publishedAt ?? null,
+      createdAt: post.createdAt,
+      updatedAt: post.updatedAt,
+      media: (post.media ?? [])
+        .slice()
+        .sort((a, b) => a.order - b.order)
+        .map((item) => ({
+          id: item.id,
+          type: item.type,
+          url: item.url,
+          order: item.order,
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+        })),
+      platforms: (post.platforms ?? []).map((item) => ({
+        id: item.id,
+        socialAccountId: item.socialAccountId,
+        socialPageId: item.socialPageId ?? null,
+        platformStatus: item.platformStatus,
+        platformPostId: item.platformPostId ?? null,
+        publishedAt: item.publishedAt ?? null,
+        errorMessage: item.errorMessage ?? null,
+        metadata: item.metadata ?? null,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      })),
+    };
   }
 }
