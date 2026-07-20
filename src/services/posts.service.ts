@@ -24,6 +24,7 @@ import { PinterestService } from './pinterest.service';
 import { PusherService } from './pusher.service';
 import { S3Service } from './s3.service';
 import { SocialAccountsService } from './social-accounts.service';
+import { ThreadsService } from './threads.service';
 
 type UploadedMediaFile = {
   buffer: Buffer;
@@ -104,13 +105,22 @@ type LinkedInOrganizationPlatformMetadata = {
   link?: string | null;
 };
 
+type ThreadPublishOptions = {
+  postPlatformId: string;
+};
+
+type ThreadPlatformMetadata = {
+  provider: 'thread';
+};
+
 type PlatformMetadata =
   | GooglePlatformMetadata
   | PinterestPlatformMetadata
   | FacebookPlatformMetadata
   | InstagramPlatformMetadata
   | LinkedInPlatformMetadata
-  | LinkedInOrganizationPlatformMetadata;
+  | LinkedInOrganizationPlatformMetadata
+  | ThreadPlatformMetadata;
 
 @Injectable()
 export class PostsService {
@@ -129,6 +139,7 @@ export class PostsService {
     private readonly pinterestService: PinterestService,
     private readonly metaService: MetaService,
     private readonly linkedInService: LinkedInService,
+    private readonly threadsService: ThreadsService,
     private readonly socialAccountsService: SocialAccountsService,
   ) {}
 
@@ -149,10 +160,12 @@ export class PostsService {
     const instagramPost = dto.instagramPost === true;
     const linkedinPost = dto.linkedinPost === true;
     const linkedinOrganizationPost = dto.linkedinOrganizationPost === true;
+    const threadPost = dto.threadPost === true;
     let googleSocialAccountId: string | null = null;
     let pinterestSocialAccountId: string | null = null;
     let metaSocialAccountId: string | null = null;
     let linkedinSocialAccountId: string | null = null;
+    let threadSocialAccountId: string | null = null;
 
     if (googlePost) {
       const googleAccount =
@@ -236,6 +249,26 @@ export class PostsService {
       }
     }
 
+    if (threadPost) {
+      const threadAccount =
+        await this.socialAccountsService.findActiveByUserAndPlatform(
+          userId,
+          'thread',
+        );
+      threadSocialAccountId = threadAccount.id;
+
+      const hasMedia = files.some(
+        (file) =>
+          file.mimetype.startsWith('image/') ||
+          file.mimetype.startsWith('video/'),
+      );
+      if (!dto.caption?.trim() && !dto.title?.trim() && !hasMedia) {
+        throw new BadRequestException(
+          'caption, title, or media is required when threadPost is true',
+        );
+      }
+    }
+
     const scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : null;
 
     const post = await this.postsRepository.save(
@@ -289,6 +322,7 @@ export class PostsService {
     let linkedinOptions: LinkedInPublishOptions | null = null;
     let linkedinOrganizationOptions: LinkedInOrganizationPublishOptions | null =
       null;
+    let threadOptions: ThreadPublishOptions | null = null;
 
     if (googlePost && googleSocialAccountId) {
       const actionType = dto.googleCtaActionType!;
@@ -454,6 +488,29 @@ export class PostsService {
       };
     }
 
+    if (threadPost && threadSocialAccountId) {
+      const metadata: ThreadPlatformMetadata = {
+        provider: 'thread',
+      };
+
+      const postPlatform = await this.postPlatformRepository.save(
+        this.postPlatformRepository.create({
+          postId: post.id,
+          socialAccountId: threadSocialAccountId,
+          socialPageId: null,
+          platformStatus: PlatformPostStatus.PENDING,
+          platformPostId: null,
+          publishedAt: null,
+          errorMessage: null,
+          metadata,
+        }),
+      );
+
+      threadOptions = {
+        postPlatformId: postPlatform.id,
+      };
+    }
+
     setImmediate(() => {
       void this.processCreateInBackground(post.id, userId, {
         google: googleOptions,
@@ -462,6 +519,7 @@ export class PostsService {
         instagram: instagramOptions,
         linkedin: linkedinOptions,
         linkedinOrganization: linkedinOrganizationOptions,
+        thread: threadOptions,
       });
     });
 
@@ -481,6 +539,7 @@ export class PostsService {
       instagramPost,
       linkedinPost,
       linkedinOrganizationPost,
+      threadPost,
     };
   }
 
@@ -572,6 +631,7 @@ export class PostsService {
         const instagramResults: Record<string, unknown>[] = [];
         const linkedinResults: Record<string, unknown>[] = [];
         const linkedinOrganizationResults: Record<string, unknown>[] = [];
+        const threadResults: Record<string, unknown>[] = [];
 
         for (const platform of pendingPlatforms) {
           const meta = platform.metadata as PlatformMetadata | null;
@@ -627,6 +687,12 @@ export class PostsService {
                 link: meta.link ?? null,
               }),
             );
+          } else if (meta.provider === 'thread') {
+            threadResults.push(
+              await this.publishThreadsPost(post.userId, post, {
+                postPlatformId: platform.id,
+              }),
+            );
           }
         }
 
@@ -677,6 +743,8 @@ export class PostsService {
             linkedinResults,
             linkedinOrganization: linkedinOrganizationResults[0] ?? null,
             linkedinOrganizationResults,
+            thread: threadResults[0] ?? null,
+            threadResults,
             platforms,
             post: {
               id: post.id,
@@ -723,6 +791,7 @@ export class PostsService {
       instagram: InstagramPublishOptions | null;
       linkedin: LinkedInPublishOptions | null;
       linkedinOrganization: LinkedInOrganizationPublishOptions | null;
+      thread: ThreadPublishOptions | null;
     },
   ) {
     this.logger.log(`Background processing postId=${postId}`);
@@ -735,6 +804,7 @@ export class PostsService {
       let instagramResult: Record<string, unknown> | null = null;
       let linkedinResult: Record<string, unknown> | null = null;
       let linkedinOrganizationResult: Record<string, unknown> | null = null;
+      let threadResult: Record<string, unknown> | null = null;
 
       if (options.google) {
         googleResult = await this.publishGoogleBusinessPost(
@@ -779,6 +849,13 @@ export class PostsService {
             options.linkedinOrganization,
           );
       }
+      if (options.thread) {
+        threadResult = await this.publishThreadsPost(
+          userId,
+          post,
+          options.thread,
+        );
+      }
 
       const platforms = await this.postPlatformRepository.find({
         where: { postId },
@@ -798,6 +875,7 @@ export class PostsService {
           instagram: instagramResult,
           linkedin: linkedinResult,
           linkedinOrganization: linkedinOrganizationResult,
+          thread: threadResult,
           platforms,
           post: {
             id: post.id,
@@ -1284,6 +1362,70 @@ export class PostsService {
         error instanceof Error ? error.message : String(error);
       this.logger.error(
         `LinkedIn organization publish failed postId=${post.id}: ${messageText}`,
+      );
+      postPlatform.platformStatus = PlatformPostStatus.FAILED;
+      postPlatform.errorMessage = messageText;
+      await this.postPlatformRepository.save(postPlatform);
+      return { status: PlatformPostStatus.FAILED, error: messageText };
+    }
+  }
+
+  private async publishThreadsPost(
+    userId: string,
+    post: Post,
+    options: ThreadPublishOptions,
+  ): Promise<Record<string, unknown>> {
+    const postPlatform = await this.postPlatformRepository.findOne({
+      where: { id: options.postPlatformId },
+    });
+
+    if (!postPlatform) {
+      return { status: 'Failed', error: 'Post platform row not found' };
+    }
+
+    if (post.status === PostStatus.SCHEDULED) {
+      return {
+        status: PlatformPostStatus.PENDING,
+        skipped: true,
+        reason: 'scheduled_for_later',
+      };
+    }
+
+    postPlatform.platformStatus = PlatformPostStatus.PUBLISHING;
+    await this.postPlatformRepository.save(postPlatform);
+
+    const text = (post.caption?.trim() || post.title?.trim() || '').trim();
+    const imageUrls = (post.media ?? [])
+      .filter((item) => item.type !== PostMediaType.VIDEO)
+      .sort((a, b) => a.order - b.order)
+      .map((item) => item.url);
+    const videoUrl = (post.media ?? []).find(
+      (item) => item.type === PostMediaType.VIDEO,
+    )?.url;
+
+    try {
+      const created = await this.threadsService.createPostForUser(userId, {
+        text: text || null,
+        imageUrls: imageUrls.length ? imageUrls : undefined,
+        videoUrl: imageUrls.length ? undefined : (videoUrl ?? null),
+      });
+
+      postPlatform.platformStatus = PlatformPostStatus.PUBLISHED;
+      postPlatform.platformPostId = created.postId;
+      postPlatform.publishedAt = new Date();
+      postPlatform.errorMessage = null;
+      await this.postPlatformRepository.save(postPlatform);
+
+      return {
+        status: PlatformPostStatus.PUBLISHED,
+        platformPostId: postPlatform.platformPostId,
+        creationId: created.creationId,
+      };
+    } catch (error) {
+      const messageText =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Threads publish failed postId=${post.id}: ${messageText}`,
       );
       postPlatform.platformStatus = PlatformPostStatus.FAILED;
       postPlatform.errorMessage = messageText;

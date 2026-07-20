@@ -157,4 +157,10 @@ export class CreatePostDto {
   @IsUrl({ require_tld: false })
   @MaxLength(2048)
   linkedinLink?: string;
+
+  /** Threads post (user id from connected Threads account) */
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  threadPost?: boolean;
 }
