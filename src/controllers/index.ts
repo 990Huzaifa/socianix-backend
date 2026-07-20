@@ -1,3 +1,6 @@
+export { AdminAuthController } from './admin-auth.controller';
+export { AdminLeadsController } from './admin-leads.controller';
+export { AdminPlatformsController } from './admin-platforms.controller';
 export { AppController } from './app.controller';
 export { AuthController } from './auth.controller';
 export { ConnectController } from './connect.controller';

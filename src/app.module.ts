@@ -5,9 +5,13 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AdminJwtStrategy } from './admin/strategies/admin-jwt.strategy';
 import { JwtStrategy } from './auth/strategies/jwt.strategy';
 import { buildDatabaseOptions } from './config/database.config';
 import {
+  AdminAuthController,
+  AdminLeadsController,
+  AdminPlatformsController,
   AppController,
   AuthController,
   ConnectController,
@@ -23,6 +27,7 @@ import {
   SocialAccountsController,
   XController,
 } from './controllers';
+import { Admin } from './entities/admin.entity';
 import { Lead } from './entities/lead.entity';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { Post } from './entities/post.entity';
@@ -33,6 +38,10 @@ import { SocialPlatform } from './entities/social-platform.entity';
 import { User } from './entities/user.entity';
 import { UserAuthProvider } from './entities/user-auth-provider.entity';
 import {
+  AdminAuthService,
+  AdminLeadsService,
+  AdminPlatformsService,
+  AdminsService,
   AppService,
   AuthService,
   ConnectService,
@@ -75,6 +84,7 @@ import { PostsSchedulerService } from './services/posts.scheduler';
       User,
       UserAuthProvider,
       PasswordResetToken,
+      Admin,
       Lead,
       SocialPlatform,
       SocialAccount,
@@ -102,6 +112,9 @@ import { PostsSchedulerService } from './services/posts.scheduler';
   controllers: [
     AppController,
     AuthController,
+    AdminAuthController,
+    AdminPlatformsController,
+    AdminLeadsController,
     ConnectController,
     ContactController,
     GoogleController,
@@ -118,6 +131,10 @@ import { PostsSchedulerService } from './services/posts.scheduler';
   providers: [
     AppService,
     AuthService,
+    AdminAuthService,
+    AdminsService,
+    AdminPlatformsService,
+    AdminLeadsService,
     UsersService,
     UserAuthProviderService,
     SocialTokenVerifierService,
@@ -139,6 +156,7 @@ import { PostsSchedulerService } from './services/posts.scheduler';
     ProfileService,
     PostsSchedulerService,
     JwtStrategy,
+    AdminJwtStrategy,
   ],
 })
 export class AppModule {}

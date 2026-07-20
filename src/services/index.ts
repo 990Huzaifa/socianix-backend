@@ -1,3 +1,7 @@
+export { AdminAuthService } from './admin-auth.service';
+export { AdminLeadsService } from './admin-leads.service';
+export { AdminPlatformsService } from './admin-platforms.service';
+export { AdminsService } from './admins.service';
 export { AppService } from './app.service';
 export { AuthService } from './auth.service';
 export { ConnectService } from './connect.service';
