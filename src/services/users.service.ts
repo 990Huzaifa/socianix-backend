@@ -16,6 +16,18 @@ export type CreateUserData = {
   appVersion?: string;
 };
 
+export type CreateSocialUserData = {
+  name: string;
+  email: string;
+  timezone: string;
+  phone?: string;
+  avatar?: string | null;
+  deviceId?: string;
+  fcmToken?: string;
+  ip?: string;
+  appVersion?: string;
+};
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -27,6 +39,15 @@ export class UsersService {
     const user = this.usersRepository.create({
       ...data,
       isEmailVerified: false,
+    });
+    return this.usersRepository.save(user);
+  }
+
+  async createSocialUser(data: CreateSocialUserData): Promise<User> {
+    const user = this.usersRepository.create({
+      ...data,
+      password: null,
+      isEmailVerified: true,
     });
     return this.usersRepository.save(user);
   }

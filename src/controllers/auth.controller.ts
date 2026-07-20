@@ -14,6 +14,7 @@ import { RegisterDto } from '../auth/dto/register.dto';
 import { ResendOtpDto } from '../auth/dto/resend-otp.dto';
 import { ResetPasswordDto } from '../auth/dto/reset-password.dto';
 import { VerifyEmailDto } from '../auth/dto/verify-email.dto';
+import { SocialLoginDto } from '../auth/dto/social-login.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { User } from '../entities/user.entity';
 import { AuthService } from '../services/auth.service';
@@ -43,6 +44,12 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Post('social-login')
+  @HttpCode(HttpStatus.OK)
+  socialLogin(@Body() dto: SocialLoginDto) {
+    return this.authService.socialLogin(dto);
   }
 
   @Post('forgot-password')

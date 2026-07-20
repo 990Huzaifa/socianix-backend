@@ -17,9 +17,12 @@ import { ResendOtpDto } from '../auth/dto/resend-otp.dto';
 import { ResetPasswordDto } from '../auth/dto/reset-password.dto';
 import { UserResponseDto } from '../auth/dto/user-response.dto';
 import { VerifyEmailDto } from '../auth/dto/verify-email.dto';
+import { SocialLoginDto } from '../auth/dto/social-login.dto';
 import { JwtPayload } from '../auth/types/jwt-payload.type';
 import { MailService } from './mail.service';
 import { PasswordResetTokenService } from './password-reset-token.service';
+import { SocialTokenVerifierService } from './social-token-verifier.service';
+import { UserAuthProviderService } from './user-auth-provider.service';
 import { UsersService } from './users.service';
 
 @Injectable()
@@ -30,6 +33,8 @@ export class AuthService {
     private readonly passwordResetTokenService: PasswordResetTokenService,
     private readonly mailService: MailService,
     private readonly configService: ConfigService,
+    private readonly socialTokenVerifier: SocialTokenVerifierService,
+    private readonly userAuthProviderService: UserAuthProviderService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -127,6 +132,12 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    if (!user.password) {
+      throw new UnauthorizedException(
+        'This account uses social login. Sign in with Google or Apple.',
+      );
+    }
+
     const isPasswordValid = await bcrypt.compare(dto.password, user.password);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid email or password');
@@ -136,6 +147,62 @@ export class AuthService {
       throw new UnauthorizedException(
         'Please verify your email before logging in',
       );
+    }
+
+    return this.buildAuthResponse(user);
+  }
+
+  async socialLogin(dto: SocialLoginDto) {
+    const profile = await this.socialTokenVerifier.verify(
+      dto.provider,
+      dto.idToken,
+    );
+
+    let user = await this.userAuthProviderService.findUserByProvider(
+      dto.provider,
+      profile.providerUserId,
+    );
+    let isNewUser = false;
+
+    if (!user) {
+      const loginProfile =
+        this.socialTokenVerifier.requireLoginProfile(profile);
+
+      const existing = await this.usersService.findByEmail(loginProfile.email);
+      if (existing) {
+        await this.userAuthProviderService.linkToUser(
+          existing,
+          dto.provider,
+          profile,
+        );
+        user = existing;
+      } else {
+        user = await this.usersService.createSocialUser({
+          name: loginProfile.name,
+          email: loginProfile.email,
+          timezone: dto.timezone,
+          phone: dto.phone,
+          avatar: dto.avatar ?? loginProfile.avatar ?? null,
+          deviceId: dto.deviceId,
+          fcmToken: dto.fcmToken,
+          ip: dto.ip,
+          appVersion: dto.appVersion,
+        });
+        await this.userAuthProviderService.create(user.id, dto.provider, profile);
+        isNewUser = true;
+      }
+    }
+
+    if (dto.deviceId || dto.fcmToken || dto.appVersion) {
+      user = await this.usersService.updateProfile(user.id, {
+        ...(dto.deviceId !== undefined && { deviceId: dto.deviceId }),
+        ...(dto.fcmToken !== undefined && { fcmToken: dto.fcmToken }),
+        ...(dto.appVersion !== undefined && { appVersion: dto.appVersion }),
+      });
+    }
+
+    if (isNewUser) {
+      await this.mailService.sendWelcome(user.email, user.name);
     }
 
     return this.buildAuthResponse(user);

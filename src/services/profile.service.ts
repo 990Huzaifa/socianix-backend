@@ -49,6 +49,12 @@ export class ProfileService {
   async changePassword(userId: string, dto: ChangePasswordDto) {
     const user = await this.usersService.findByIdOrFail(userId);
 
+    if (!user.password) {
+      throw new BadRequestException(
+        'This account uses social login and does not have a password set',
+      );
+    }
+
     const isCurrentValid = await bcrypt.compare(
       dto.currentPassword,
       user.password,

@@ -7,6 +7,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { SocialAccount } from './social-account.entity';
+import { UserAuthProvider } from './user-auth-provider.entity';
 import { Post } from './post.entity';
 import { Activity } from './activity.entity';
 import { PasswordResetToken } from './password-reset-token.entity';
@@ -22,8 +23,8 @@ export class User {
   @Column({ unique: true })
   email: string;
 
-  @Column()
-  password: string;
+  @Column({ type: 'varchar', nullable: true })
+  password?: string | null;
 
   @Column()
   timezone: string;
@@ -51,6 +52,9 @@ export class User {
 
   @OneToMany(() => SocialAccount, (account) => account.user)
   socialAccounts: SocialAccount[];
+
+  @OneToMany(() => UserAuthProvider, (auth) => auth.user)
+  authProviders: UserAuthProvider[];
 
   @OneToMany(() => Post, (post) => post.user)
   posts: Post[];

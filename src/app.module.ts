@@ -30,6 +30,7 @@ import { PostPlatform } from './entities/post-platform.entity';
 import { SocialAccount } from './entities/social-account.entity';
 import { SocialPlatform } from './entities/social-platform.entity';
 import { User } from './entities/user.entity';
+import { UserAuthProvider } from './entities/user-auth-provider.entity';
 import {
   AppService,
   AuthService,
@@ -47,7 +48,9 @@ import {
   PusherService,
   S3Service,
   SocialAccountsService,
+  SocialTokenVerifierService,
   ThreadsService,
+  UserAuthProviderService,
   UsersService,
   XService,
 } from './services';
@@ -69,6 +72,7 @@ import { PostsSchedulerService } from './services/posts.scheduler';
     }),
     TypeOrmModule.forFeature([
       User,
+      UserAuthProvider,
       PasswordResetToken,
       Lead,
       SocialPlatform,
@@ -113,6 +117,8 @@ import { PostsSchedulerService } from './services/posts.scheduler';
     AppService,
     AuthService,
     UsersService,
+    UserAuthProviderService,
+    SocialTokenVerifierService,
     MailService,
     ConnectService,
     ContactService,

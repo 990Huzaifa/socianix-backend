@@ -20,3 +20,7 @@ export {
   PasswordResetToken,
   PasswordResetTokenType,
 } from './password-reset-token.entity';
+export {
+  UserAuthProvider,
+  SocialAuthProvider,
+} from './user-auth-provider.entity';
