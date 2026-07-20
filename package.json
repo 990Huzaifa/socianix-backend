@@ -24,8 +24,10 @@
     "migration:run": "npm run typeorm -- migration:run -d src/database/data-source.ts",
     "migration:revert": "npm run typeorm -- migration:revert -d src/database/data-source.ts",
     "migration:show": "npm run typeorm -- migration:show -d src/database/data-source.ts",
-    "seed": "ts-node -r tsconfig-paths/register -P tsconfig.typeorm.json src/database/seeds/seed-social-platforms.ts",
+    "seed": "ts-node -r tsconfig-paths/register -P tsconfig.typeorm.json src/database/seeds/seed.ts",
     "seed:admins": "ts-node -r tsconfig-paths/register -P tsconfig.typeorm.json src/database/seeds/seed-admins.ts",
+    "seed:platforms": "ts-node -r tsconfig-paths/register -P tsconfig.typeorm.json src/database/seeds/seed-social-platforms.ts",
+
     "cron:refresh-google": "node scripts/refresh-google-tokens.js"
   },
   "dependencies": {
