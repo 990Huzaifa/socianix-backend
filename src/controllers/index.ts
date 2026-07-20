@@ -6,6 +6,7 @@ export { GoogleController } from './google.controller';
 export { LinkedInController } from './linkedin.controller';
 export { MetaController } from './meta.controller';
 export { PinterestController } from './pinterest.controller';
+export { PlatformsController } from './platforms.controller';
 export { PostsController } from './posts.controller';
 export { ProfileController } from './profile.controller';
 export { PusherController } from './pusher.controller';

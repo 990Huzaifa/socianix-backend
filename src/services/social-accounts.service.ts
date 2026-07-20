@@ -82,6 +82,39 @@ export class SocialAccountsService {
   }
 
   /**
+   * List all social platforms with the user's connection status.
+   */
+  async listPlatforms(userId: string) {
+    const platforms = await this.socialPlatformsRepository.find({
+      order: { name: 'ASC' },
+    });
+
+    const activeAccounts = await this.socialAccountsRepository.find({
+      where: { userId, status: SocialAccountStatus.ACTIVE },
+      select: ['platformId'],
+    });
+    const connectedPlatformIds = new Set(
+      activeAccounts.map((account) => account.platformId),
+    );
+
+    const items = platforms.map((platform) => ({
+      id: platform.id,
+      name: platform.name,
+      slug: platform.slug,
+      description: platform.description ?? null,
+      icon: platform.icon ?? null,
+      logo: platform.logo ?? null,
+      status: platform.status,
+      connected: connectedPlatformIds.has(platform.id),
+    }));
+
+    return {
+      platforms: items,
+      total: items.length,
+    };
+  }
+
+  /**
    * List all social accounts for a user (active, disconnected, expired).
    * Tokens are never included in the response.
    */
