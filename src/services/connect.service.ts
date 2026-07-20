@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -87,27 +88,102 @@ export class ConnectService {
     );
   }
 
-  async handleCallback(platform: ConnectPlatform, query: OAuthCallbackQuery) {
-    if (query.error) {
+  async handleCallback(
+    platform: ConnectPlatform,
+    query: OAuthCallbackQuery,
+  ): Promise<string> {
+    try {
+      if (query.error) {
+        this.logger.warn(
+          `${platform} OAuth callback returned error: ${query.error} (${query.error_description ?? 'no description'})`,
+        );
+        return this.buildOAuthCallbackDeeplink(platform, 'error', query.error);
+      }
+
+      if (!query.code) {
+        return this.buildOAuthCallbackDeeplink(
+          platform,
+          'error',
+          'missing_code',
+        );
+      }
+
+      this.logger.log(
+        `${platform} OAuth callback received (state=${query.state ?? 'none'})`,
+      );
+
+      await this.completeOAuthConnect(platform, query.code, query.state);
+
+      return this.buildOAuthCallbackDeeplink(platform, 'success');
+    } catch (error) {
       this.logger.warn(
-        `${platform} OAuth callback returned error: ${query.error} (${query.error_description ?? 'no description'})`,
+        `${platform} OAuth callback failed: ${this.formatError(error)}`,
       );
-      throw new BadRequestException(
-        `${platform} authorization failed: ${query.error_description ?? query.error}`,
-      );
-    }
-
-    if (!query.code) {
-      throw new BadRequestException(
-        `${platform} authorization failed: missing code`,
+      return this.buildOAuthCallbackDeeplink(
+        platform,
+        'error',
+        this.formatCallbackError(error),
       );
     }
+  }
 
-    this.logger.log(
-      `${platform} OAuth callback received (state=${query.state ?? 'none'})`,
-    );
+  private buildOAuthCallbackDeeplink(
+    platform: ConnectPlatform,
+    status: 'success' | 'error',
+    message?: string,
+  ): string {
+    const base =
+      this.configService.get<string>('OAUTH_CALLBACK_DEEPLINK') ??
+      'socialsyncc://oauth/callback';
+    const url = new URL(base);
 
-    return this.completeOAuthConnect(platform, query.code, query.state);
+    url.searchParams.set('platform', platform);
+    url.searchParams.set('status', status);
+
+    if (message) {
+      url.searchParams.set('message', message);
+    }
+
+    return url.toString();
+  }
+
+  private formatCallbackError(error: unknown): string {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (typeof response === 'string') {
+        return this.toErrorCode(response);
+      }
+
+      if (
+        typeof response === 'object' &&
+        response !== null &&
+        'message' in response
+      ) {
+        const message = (response as { message?: string | string[] }).message;
+        if (Array.isArray(message)) {
+          return this.toErrorCode(message[0] ?? 'connection_failed');
+        }
+        if (typeof message === 'string') {
+          return this.toErrorCode(message);
+        }
+      }
+    }
+
+    if (error instanceof Error) {
+      return this.toErrorCode(error.message);
+    }
+
+    return 'connection_failed';
+  }
+
+  private toErrorCode(message: string): string {
+    const normalized = message
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+    return normalized || 'connection_failed';
   }
 
   private async completeOAuthConnect(
@@ -152,10 +228,9 @@ export class ConnectService {
       profile,
     );
 
-    return {
-      message: `${platform} account connected successfully`,
-      account,
-    };
+    this.logger.log(
+      `${platform} account connected successfully (accountId=${account.id})`,
+    );
   }
 
   private formatError(error: unknown): string {
