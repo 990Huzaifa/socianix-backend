@@ -92,25 +92,43 @@ export class S3Service implements OnModuleInit {
   }
 
   getPublicUrl(key: string): string {
-    const bucket = this.getBucketName();
-    const region = this.getRegion();
-    return `https://media.socialsyncc.com/`;
+    const normalizedKey = key.replace(/^\/+/, '');
+    const cdnBase =
+      this.configService.get<string>('AWS_S3_CDN_URL') ??
+      this.configService.get<string>('MEDIA_CDN_URL') ??
+      'https://media.socialsyncc.com';
+
+    return `${cdnBase.replace(/\/$/, '')}/${normalizedKey}`;
   }
 
   extractKeyFromUrl(url: string): string | null {
-    if (!this.bucketName || !this.region) {
-      return null;
-    }
-
     try {
       const parsed = new URL(url);
-      const expectedHost = `${this.bucketName}.s3.${this.region}.amazonaws.com`;
-      if (parsed.hostname !== expectedHost) {
+      const key = parsed.pathname.replace(/^\/+/, '');
+      if (!key) {
         return null;
       }
 
-      const key = parsed.pathname.replace(/^\/+/, '');
-      return key || null;
+      const cdnHost = (
+        this.configService.get<string>('AWS_S3_CDN_URL') ??
+        this.configService.get<string>('MEDIA_CDN_URL') ??
+        'https://media.socialsyncc.com'
+      )
+        .replace(/^https?:\/\//, '')
+        .replace(/\/$/, '');
+
+      if (this.bucketName && this.region) {
+        const s3Host = `${this.bucketName}.s3.${this.region}.amazonaws.com`;
+        if (parsed.hostname === s3Host || parsed.hostname === cdnHost) {
+          return key;
+        }
+      }
+
+      if (parsed.hostname === cdnHost) {
+        return key;
+      }
+
+      return null;
     } catch {
       return null;
     }
@@ -145,6 +163,53 @@ export class S3Service implements OnModuleInit {
     return `${folder}/${base}`;
   }
 
+  /**
+   * Resolve a reliable Content-Type for S3.
+   * Mobile clients sometimes send empty or application/octet-stream mimetypes.
+   */
+  resolveContentType(input: {
+    mimeType?: string | null;
+    originalName?: string | null;
+    folder: 'image' | 'video';
+  }): string {
+    const mime = (input.mimeType ?? '').trim().toLowerCase();
+    if (
+      (mime.startsWith('image/') || mime.startsWith('video/')) &&
+      mime !== 'application/octet-stream'
+    ) {
+      return mime;
+    }
+
+    const ext = extname(input.originalName || '')
+      .toLowerCase()
+      .replace(/^\./, '');
+
+    const byExt: Record<string, string> = {
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      webp: 'image/webp',
+      heic: 'image/heic',
+      heif: 'image/heif',
+      bmp: 'image/bmp',
+      mp4: 'video/mp4',
+      mov: 'video/quicktime',
+      m4v: 'video/x-m4v',
+      webm: 'video/webm',
+      avi: 'video/x-msvideo',
+      mkv: 'video/x-matroska',
+      mpeg: 'video/mpeg',
+      mpg: 'video/mpeg',
+    };
+
+    if (ext && byExt[ext]) {
+      return byExt[ext];
+    }
+
+    return input.folder === 'video' ? 'video/mp4' : 'image/jpeg';
+  }
+
   async uploadFile(input: S3UploadInput): Promise<S3UploadResult> {
     if (!this.isEnabled()) {
       throw new BadRequestException('S3 is not configured');
@@ -152,24 +217,32 @@ export class S3Service implements OnModuleInit {
 
     const key = this.buildObjectKey(input.folder, input.originalName);
     const bucket = this.getBucketName();
+    const contentType = this.resolveContentType({
+      mimeType: input.mimeType,
+      originalName: input.originalName,
+      folder: input.folder,
+    });
 
     await this.getClient().send(
       new PutObjectCommand({
         Bucket: bucket,
         Key: key,
         Body: input.buffer,
-        ContentType: input.mimeType,
+        ContentType: contentType,
+        Metadata: {
+          'original-name': (input.originalName || 'upload').slice(0, 200),
+        },
       }),
     );
 
     const url = this.getPublicUrl(key);
-    this.logger.log(`Uploaded to S3 key=${key}`);
+    this.logger.log(`Uploaded to S3 key=${key} contentType=${contentType}`);
 
     return {
       key,
       url,
       bucket,
-      contentType: input.mimeType,
+      contentType,
     };
   }
 }
