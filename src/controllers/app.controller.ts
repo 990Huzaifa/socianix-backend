@@ -10,9 +10,4 @@ export class AppController {
     return this.appService.getHello();
   }
 
-  @Get('tiktokbO452fXf4wN4vpD4CZ9Hpu2cNRZRidXx.txt')
-  @Header('Content-Type', 'text/plain; charset=utf-8')
-  getTikTokDomainVerification(): string {
-    return this.appService.getTikTokDomainVerification();
-  }
 }

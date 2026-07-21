@@ -194,6 +194,15 @@ export class MailService {
       return this.cachedLogoSrc;
     }
 
+    const configuredLogoUrl =
+      this.configService.get<string>('LOGOS_URL')?.trim() ||
+      this.configService.get<string>('LOGO_URL')?.trim();
+
+    if (configuredLogoUrl) {
+      this.cachedLogoSrc = configuredLogoUrl;
+      return this.cachedLogoSrc;
+    }
+
     const candidates = [
       'logo.png',
       'logo.jpg',
@@ -214,7 +223,9 @@ export class MailService {
       return this.cachedLogoSrc;
     }
 
-    this.logger.warn(`No logo found in ${this.assetsDir} (expected logo.png)`);
+    this.logger.warn(
+      'No email logo configured. Set LOGOS_URL or place logo.png in mail/assets.',
+    );
     this.cachedLogoSrc = null;
     return null;
   }
