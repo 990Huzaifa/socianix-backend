@@ -8,6 +8,7 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'https://socialsyncc.com',
+      'https://app.socialsyncc.com',
       'https://www.socialsyncc.com',
       'http://localhost:5173', // local Vite
     ],
