@@ -39,7 +39,7 @@ export class MailService {
       name,
       otp,
       appName: this.appName(),
-      logoSrc: this.logoSrc(),
+      logoUrl: this.logoUrl(),
       year: new Date().getFullYear(),
     });
 
@@ -55,7 +55,7 @@ export class MailService {
     const html = this.renderTemplate('welcome-email', {
       name,
       appName: this.appName(),
-      logoSrc: this.logoSrc(),
+      logoUrl: this.logoUrl(),
       year: new Date().getFullYear(),
     });
 
@@ -76,7 +76,7 @@ export class MailService {
       name,
       otp,
       appName: this.appName(),
-      logoSrc: this.logoSrc(),
+      logoUrl: this.logoUrl(),
       year: new Date().getFullYear(),
     });
 
@@ -97,7 +97,7 @@ export class MailService {
       name,
       inquiry,
       appName: this.appName(),
-      logoSrc: this.logoSrc(),
+      logoUrl: this.logoUrl(),
       year: new Date().getFullYear(),
     });
 
@@ -122,7 +122,7 @@ export class MailService {
       inquiry: lead.inquiry,
       message: lead.message,
       appName: this.appName(),
-      logoSrc: this.logoSrc(),
+      logoUrl: this.logoUrl(),
       year: new Date().getFullYear(),
     });
 
@@ -180,6 +180,10 @@ export class MailService {
     return this.configService.getOrThrow<string>(envKey);
   }
 
+  private logoUrl(): string {
+    return 'https://media.socialsyncc.com/logo.png';
+  }
+
   private renderTemplate(
     templateName: string,
     data: Record<string, unknown>,
@@ -187,62 +191,6 @@ export class MailService {
     const filePath = path.join(this.templatesDir, `${templateName}.hbs`);
     const source = fs.readFileSync(filePath, 'utf8');
     return Handlebars.compile(source)(data);
-  }
-
-  private logoSrc(): string | null {
-    if (this.cachedLogoSrc !== undefined) {
-      return this.cachedLogoSrc;
-    }
-
-    const configuredLogoUrl =
-      this.configService.get<string>('LOGOS_URL')?.trim() ||
-      this.configService.get<string>('LOGO_URL')?.trim();
-
-    if (configuredLogoUrl) {
-      this.cachedLogoSrc = configuredLogoUrl;
-      return this.cachedLogoSrc;
-    }
-
-    const candidates = [
-      'logo.png',
-      'logo.jpg',
-      'logo.jpeg',
-      'logo.webp',
-      'logo.svg',
-    ];
-
-    for (const filename of candidates) {
-      const filePath = path.join(this.assetsDir, filename);
-      if (!fs.existsSync(filePath)) {
-        continue;
-      }
-
-      const buffer = fs.readFileSync(filePath);
-      const mime = this.mimeType(filename);
-      this.cachedLogoSrc = `data:${mime};base64,${buffer.toString('base64')}`;
-      return this.cachedLogoSrc;
-    }
-
-    this.logger.warn(
-      'No email logo configured. Set LOGOS_URL or place logo.png in mail/assets.',
-    );
-    this.cachedLogoSrc = null;
-    return null;
-  }
-
-  private mimeType(filename: string): string {
-    const ext = path.extname(filename).toLowerCase();
-    switch (ext) {
-      case '.jpg':
-      case '.jpeg':
-        return 'image/jpeg';
-      case '.webp':
-        return 'image/webp';
-      case '.svg':
-        return 'image/svg+xml';
-      default:
-        return 'image/png';
-    }
   }
 
   private resolveMailDir(): string {
