@@ -30,6 +30,7 @@ import { PusherService } from './pusher.service';
 import { S3Service } from './s3.service';
 import { SocialAccountsService } from './social-accounts.service';
 import { ThreadsService } from './threads.service';
+import { TikTokService } from './tiktok.service';
 
 type UploadedMediaFile = {
   buffer: Buffer;
@@ -118,6 +119,14 @@ type ThreadPlatformMetadata = {
   provider: 'thread';
 };
 
+type TikTokPublishOptions = {
+  postPlatformId: string;
+};
+
+type TikTokPlatformMetadata = {
+  provider: 'tiktok';
+};
+
 type PlatformMetadata =
   | GooglePlatformMetadata
   | PinterestPlatformMetadata
@@ -125,7 +134,8 @@ type PlatformMetadata =
   | InstagramPlatformMetadata
   | LinkedInPlatformMetadata
   | LinkedInOrganizationPlatformMetadata
-  | ThreadPlatformMetadata;
+  | ThreadPlatformMetadata
+  | TikTokPlatformMetadata;
 
 @Injectable()
 export class PostsService {
@@ -145,6 +155,7 @@ export class PostsService {
     private readonly metaService: MetaService,
     private readonly linkedInService: LinkedInService,
     private readonly threadsService: ThreadsService,
+    private readonly tiktokService: TikTokService,
     private readonly socialAccountsService: SocialAccountsService,
   ) {}
 
@@ -167,11 +178,13 @@ export class PostsService {
     const linkedinPost = dto.linkedinPost === true;
     const linkedinOrganizationPost = dto.linkedinOrganizationPost === true;
     const threadPost = dto.threadPost === true;
+    const tiktokPost = dto.tiktokPost === true;
     let googleSocialAccountId: string | null = null;
     let pinterestSocialAccountId: string | null = null;
     let metaSocialAccountId: string | null = null;
     let linkedinSocialAccountId: string | null = null;
     let threadSocialAccountId: string | null = null;
+    let tiktokSocialAccountId: string | null = null;
 
     if (googlePost) {
       const googleAccount =
@@ -275,6 +288,26 @@ export class PostsService {
       }
     }
 
+    if (tiktokPost) {
+      const tiktokAccount =
+        await this.socialAccountsService.findActiveByUserAndPlatform(
+          userId,
+          'tiktok',
+        );
+      tiktokSocialAccountId = tiktokAccount.id;
+
+      const hasMedia = files.some(
+        (file) =>
+          file.mimetype.startsWith('image/') ||
+          file.mimetype.startsWith('video/'),
+      );
+      if (!hasMedia) {
+        throw new BadRequestException(
+          'At least one image or video file is required when tiktokPost is true',
+        );
+      }
+    }
+
     let scheduledAt: Date | null = null;
     if (postStatus === CreatePostStatus.SCHEDULED) {
       if (!dto.scheduledAt?.trim()) {
@@ -350,6 +383,7 @@ export class PostsService {
     let linkedinOrganizationOptions: LinkedInOrganizationPublishOptions | null =
       null;
     let threadOptions: ThreadPublishOptions | null = null;
+    let tiktokOptions: TikTokPublishOptions | null = null;
 
     if (googlePost && googleSocialAccountId) {
       const actionType = dto.googleCtaActionType!;
@@ -538,6 +572,29 @@ export class PostsService {
       };
     }
 
+    if (tiktokPost && tiktokSocialAccountId) {
+      const metadata: TikTokPlatformMetadata = {
+        provider: 'tiktok',
+      };
+
+      const postPlatform = await this.postPlatformRepository.save(
+        this.postPlatformRepository.create({
+          postId: post.id,
+          socialAccountId: tiktokSocialAccountId,
+          socialPageId: null,
+          platformStatus: PlatformPostStatus.PENDING,
+          platformPostId: null,
+          publishedAt: null,
+          errorMessage: null,
+          metadata,
+        }),
+      );
+
+      tiktokOptions = {
+        postPlatformId: postPlatform.id,
+      };
+    }
+
     if (postStatus === CreatePostStatus.PUBLISHING) {
       setImmediate(() => {
         void this.processCreateInBackground(post.id, userId, {
@@ -548,6 +605,7 @@ export class PostsService {
           linkedin: linkedinOptions,
           linkedinOrganization: linkedinOrganizationOptions,
           thread: threadOptions,
+          tiktok: tiktokOptions,
         });
       });
 
@@ -568,6 +626,7 @@ export class PostsService {
         linkedinPost,
         linkedinOrganizationPost,
         threadPost,
+        tiktokPost,
       };
     }
 
@@ -588,6 +647,7 @@ export class PostsService {
         linkedinPost,
         linkedinOrganizationPost,
         threadPost,
+        tiktokPost,
       };
     }
 
@@ -604,6 +664,7 @@ export class PostsService {
       linkedinPost,
       linkedinOrganizationPost,
       threadPost,
+      tiktokPost,
     };
   }
 
@@ -820,6 +881,7 @@ export class PostsService {
       linkedinPost: publishOptions.linkedin !== null,
       linkedinOrganizationPost: publishOptions.linkedinOrganization !== null,
       threadPost: publishOptions.thread !== null,
+      tiktokPost: publishOptions.tiktok !== null,
     };
   }
 
@@ -873,6 +935,7 @@ export class PostsService {
         const linkedinResults: Record<string, unknown>[] = [];
         const linkedinOrganizationResults: Record<string, unknown>[] = [];
         const threadResults: Record<string, unknown>[] = [];
+        const tiktokResults: Record<string, unknown>[] = [];
 
         for (const platform of pendingPlatforms) {
           const meta = platform.metadata as PlatformMetadata | null;
@@ -934,6 +997,12 @@ export class PostsService {
                 postPlatformId: platform.id,
               }),
             );
+          } else if (meta.provider === 'tiktok') {
+            tiktokResults.push(
+              await this.publishTikTokPost(post.userId, post, {
+                postPlatformId: platform.id,
+              }),
+            );
           }
         }
 
@@ -986,6 +1055,8 @@ export class PostsService {
             linkedinOrganizationResults,
             thread: threadResults[0] ?? null,
             threadResults,
+            tiktok: tiktokResults[0] ?? null,
+            tiktokResults,
             platforms,
             post: {
               id: post.id,
@@ -1033,6 +1104,7 @@ export class PostsService {
       linkedin: LinkedInPublishOptions | null;
       linkedinOrganization: LinkedInOrganizationPublishOptions | null;
       thread: ThreadPublishOptions | null;
+      tiktok: TikTokPublishOptions | null;
     },
   ) {
     this.logger.log(`Background processing postId=${postId}`);
@@ -1046,6 +1118,7 @@ export class PostsService {
       let linkedinResult: Record<string, unknown> | null = null;
       let linkedinOrganizationResult: Record<string, unknown> | null = null;
       let threadResult: Record<string, unknown> | null = null;
+      let tiktokResult: Record<string, unknown> | null = null;
 
       if (options.google) {
         googleResult = await this.publishGoogleBusinessPost(
@@ -1097,6 +1170,13 @@ export class PostsService {
           options.thread,
         );
       }
+      if (options.tiktok) {
+        tiktokResult = await this.publishTikTokPost(
+          userId,
+          post,
+          options.tiktok,
+        );
+      }
 
       const platforms = await this.postPlatformRepository.find({
         where: { postId },
@@ -1138,6 +1218,7 @@ export class PostsService {
           linkedin: linkedinResult,
           linkedinOrganization: linkedinOrganizationResult,
           thread: threadResult,
+          tiktok: tiktokResult,
           platforms,
           post: {
             id: post.id,
@@ -1696,6 +1777,86 @@ export class PostsService {
     }
   }
 
+  private async publishTikTokPost(
+    userId: string,
+    post: Post,
+    options: TikTokPublishOptions,
+  ): Promise<Record<string, unknown>> {
+    const postPlatform = await this.postPlatformRepository.findOne({
+      where: { id: options.postPlatformId },
+    });
+
+    if (!postPlatform) {
+      return { status: 'Failed', error: 'Post platform row not found' };
+    }
+
+    if (post.status === PostStatus.SCHEDULED) {
+      return {
+        status: PlatformPostStatus.PENDING,
+        skipped: true,
+        reason: 'scheduled_for_later',
+      };
+    }
+
+    postPlatform.platformStatus = PlatformPostStatus.PUBLISHING;
+    await this.postPlatformRepository.save(postPlatform);
+
+    const title = (post.title?.trim() || post.caption?.trim() || '').trim();
+    const description = (post.caption?.trim() || post.title?.trim() || '').trim();
+    const imageUrls = (post.media ?? [])
+      .filter((item) => item.type !== PostMediaType.VIDEO)
+      .sort((a, b) => a.order - b.order)
+      .map((item) => item.url);
+    const videoUrl = (post.media ?? []).find(
+      (item) => item.type === PostMediaType.VIDEO,
+    )?.url;
+
+    if (!videoUrl && !imageUrls.length) {
+      postPlatform.platformStatus = PlatformPostStatus.FAILED;
+      postPlatform.errorMessage =
+        'TikTok post requires at least one image or video';
+      await this.postPlatformRepository.save(postPlatform);
+      return {
+        status: PlatformPostStatus.FAILED,
+        error: postPlatform.errorMessage,
+      };
+    }
+
+    try {
+      const created = await this.tiktokService.createPostForUser(userId, {
+        title: title || null,
+        description: description || null,
+        videoUrl: videoUrl ?? null,
+        imageUrls: videoUrl ? undefined : imageUrls,
+      });
+
+      postPlatform.platformStatus = PlatformPostStatus.PUBLISHED;
+      postPlatform.platformPostId =
+        created.postIds[0] ?? created.publishId ?? null;
+      postPlatform.publishedAt = new Date();
+      postPlatform.errorMessage = null;
+      await this.postPlatformRepository.save(postPlatform);
+
+      return {
+        status: PlatformPostStatus.PUBLISHED,
+        platformPostId: postPlatform.platformPostId,
+        publishId: created.publishId,
+        publishStatus: created.status,
+        postIds: created.postIds,
+      };
+    } catch (error) {
+      const messageText =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `TikTok publish failed postId=${post.id}: ${messageText}`,
+      );
+      postPlatform.platformStatus = PlatformPostStatus.FAILED;
+      postPlatform.errorMessage = messageText;
+      await this.postPlatformRepository.save(postPlatform);
+      return { status: PlatformPostStatus.FAILED, error: messageText };
+    }
+  }
+
   private buildPublishOptionsFromPlatforms(platforms: PostPlatform[]): {
     google: GooglePublishOptions | null;
     pinterest: PinterestPublishOptions | null;
@@ -1704,6 +1865,7 @@ export class PostsService {
     linkedin: LinkedInPublishOptions | null;
     linkedinOrganization: LinkedInOrganizationPublishOptions | null;
     thread: ThreadPublishOptions | null;
+    tiktok: TikTokPublishOptions | null;
   } {
     let google: GooglePublishOptions | null = null;
     let pinterest: PinterestPublishOptions | null = null;
@@ -1712,6 +1874,7 @@ export class PostsService {
     let linkedin: LinkedInPublishOptions | null = null;
     let linkedinOrganization: LinkedInOrganizationPublishOptions | null = null;
     let thread: ThreadPublishOptions | null = null;
+    let tiktok: TikTokPublishOptions | null = null;
 
     for (const platform of platforms) {
       const meta = platform.metadata as PlatformMetadata | null;
@@ -1759,6 +1922,10 @@ export class PostsService {
         thread = {
           postPlatformId: platform.id,
         };
+      } else if (meta.provider === 'tiktok') {
+        tiktok = {
+          postPlatformId: platform.id,
+        };
       }
     }
 
@@ -1770,6 +1937,7 @@ export class PostsService {
       linkedin,
       linkedinOrganization,
       thread,
+      tiktok,
     };
   }
 
@@ -2012,6 +2180,8 @@ export class PostsService {
       instagram: 'Instagram',
       linkedin: 'LinkedIn',
       thread: 'Threads',
+      tiktok: 'TikTok',
+      snapchat: 'Snapchat',
     };
 
     return labels[slug] ?? slug;

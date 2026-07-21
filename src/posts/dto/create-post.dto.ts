@@ -174,4 +174,10 @@ export class CreatePostDto {
   @Transform(({ value }) => toBoolean(value))
   @IsBoolean()
   threadPost?: boolean;
+
+  /** TikTok post (video preferred; images supported as photo post) */
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  tiktokPost?: boolean;
 }
