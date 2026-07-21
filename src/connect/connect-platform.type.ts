@@ -6,6 +6,7 @@ export const CONNECT_PLATFORMS = [
   'linkedin',
   'pinterest',
   'tiktok',
+  'snapchat',
 ] as const;
 
 export type ConnectPlatform = (typeof CONNECT_PLATFORMS)[number];

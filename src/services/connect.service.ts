@@ -18,7 +18,9 @@ import { PlatformOAuthService } from './platform-oauth.service';
 import { SocialAccountsService } from './social-accounts.service';
 import { LinkedInService } from './linkedin.service';
 import { MetaService } from './meta.service';
+import { SnapchatService } from './snapchat.service';
 import { ThreadsService } from './threads.service';
+import { TikTokService } from './tiktok.service';
 import { XService } from './x.service';
 
 @Injectable()
@@ -34,6 +36,8 @@ export class ConnectService {
     private readonly threadsService: ThreadsService,
     private readonly xService: XService,
     private readonly linkedInService: LinkedInService,
+    private readonly snapchatService: SnapchatService,
+    private readonly tiktokService: TikTokService,
   ) {}
 
   getAuthorizationUrl(platform: ConnectPlatform, userId: string) {
@@ -72,6 +76,20 @@ export class ConnectService {
           platform,
           authorizationUrl: this.linkedInService.getAuthorizationUrl(
             this.signState('linkedin', userId),
+          ),
+        };
+      case 'snapchat':
+        return {
+          platform,
+          authorizationUrl: this.snapchatService.getAuthorizationUrl(
+            this.signState('snapchat', userId),
+          ),
+        };
+      case 'tiktok':
+        return {
+          platform,
+          authorizationUrl: this.tiktokService.getAuthorizationUrl(
+            this.signState('tiktok', userId),
           ),
         };
       default:

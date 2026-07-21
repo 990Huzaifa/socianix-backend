@@ -1,12 +1,5 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotImplementedException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { HttpService } from '@nestjs/axios';
-import { firstValueFrom } from 'rxjs';
 import { ConnectPlatform } from '../connect/connect-platform.type';
 import {
   OAuthProfileInfo,
@@ -16,15 +9,14 @@ import { GoogleService } from './google.service';
 import { LinkedInService } from './linkedin.service';
 import { MetaService } from './meta.service';
 import { PinterestService } from './pinterest.service';
+import { SnapchatService } from './snapchat.service';
 import { ThreadsService } from './threads.service';
+import { TikTokService } from './tiktok.service';
 import { XService } from './x.service';
 
 @Injectable()
 export class PlatformOAuthService {
-  private readonly logger = new Logger(PlatformOAuthService.name);
-
   constructor(
-    private readonly httpService: HttpService,
     private readonly configService: ConfigService,
     private readonly googleService: GoogleService,
     private readonly pinterestService: PinterestService,
@@ -32,6 +24,8 @@ export class PlatformOAuthService {
     private readonly threadsService: ThreadsService,
     private readonly xService: XService,
     private readonly linkedInService: LinkedInService,
+    private readonly tiktokService: TikTokService,
+    private readonly snapchatService: SnapchatService,
   ) {}
 
   getRedirectUri(platform: ConnectPlatform): string {
@@ -53,6 +47,12 @@ export class PlatformOAuthService {
     if (platform === 'linkedin') {
       return this.linkedInService.getRedirectUri();
     }
+    if (platform === 'tiktok') {
+      return this.tiktokService.getRedirectUri();
+    }
+    if (platform === 'snapchat') {
+      return this.snapchatService.getRedirectUri();
+    }
 
     const appUrl = this.configService
       .getOrThrow<string>('APP_URL')
@@ -66,6 +66,7 @@ export class PlatformOAuthService {
       linkedin: 'LINKEDIN_REDIRECT_URI',
       pinterest: 'PINTEREST_REDIRECT_URI',
       tiktok: 'TIKTOK_REDIRECT_URI',
+      snapchat: 'SNAPCHAT_REDIRECT_URI',
     };
 
     return (
@@ -97,7 +98,9 @@ export class PlatformOAuthService {
       case 'pinterest':
         return this.pinterestService.getAccessToken(code);
       case 'tiktok':
-        return this.getTiktokAccessToken(code);
+        return this.tiktokService.getAccessToken(code);
+      case 'snapchat':
+        return this.snapchatService.getAccessToken(code);
     }
   }
 
@@ -130,134 +133,18 @@ export class PlatformOAuthService {
         const data = await this.pinterestService.collectConnectData(accessToken);
         return { ...data.profile, metadata: data.metadata };
       }
-      case 'tiktok':
-        return this.getTiktokProfile(accessToken);
+      case 'tiktok': {
+        const data = await this.tiktokService.collectConnectData(accessToken);
+        return { ...data.profile, metadata: data.metadata };
+      }
+      case 'snapchat': {
+        const data = await this.snapchatService.collectConnectData(accessToken);
+        return { ...data.profile, metadata: data.metadata };
+      }
     }
   }
 
   async refreshGoogleToken(refreshToken: string): Promise<OAuthTokenResult> {
     return this.googleService.refreshToken(refreshToken);
-  }
-
-  private async getTiktokAccessToken(code: string): Promise<OAuthTokenResult> {
-    const clientKey =
-      this.configService.get<string>('Tiktok_CLIENT_KEY') ??
-      this.configService.getOrThrow<string>('TIKTOK_CLIENT_KEY');
-    const clientSecret =
-      this.configService.get<string>('Tiktok_CLIENT_SECRET') ??
-      this.configService.getOrThrow<string>('TIKTOK_CLIENT_SECRET');
-    const redirectUri =
-      this.configService.get<string>('Tiktok_REDIRECT_URI') ??
-      this.getRedirectUri('tiktok');
-
-    const body = new URLSearchParams({
-      client_key: clientKey,
-      client_secret: clientSecret,
-      code,
-      grant_type: 'authorization_code',
-      redirect_uri: redirectUri,
-    });
-
-    const { data } = await this.postForm(
-      'https://open.tiktokapis.com/v2/oauth/token/',
-      body,
-    );
-
-    const tokenData = data.data ?? data;
-    return this.mapTokenResponse(tokenData);
-  }
-
-  private async getTiktokProfile(
-    accessToken: string,
-  ): Promise<OAuthProfileInfo> {
-    const { data } = await firstValueFrom(
-      this.httpService.get(
-        'https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name,username',
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        },
-      ),
-    );
-
-    const user = data.data?.user ?? data.user ?? data;
-    const platformUserId = String(user.open_id ?? user.union_id ?? user.username);
-
-    return {
-      platformUserId,
-      username: user.username ?? user.display_name ?? platformUserId,
-      displayName: user.display_name ?? null,
-      profileImage: user.avatar_url ?? null,
-      email: null,
-      metadata: {
-        providerProfile: user,
-      },
-    };
-  }
-
-  private mapTokenResponse(data: Record<string, unknown>): OAuthTokenResult {
-    const accessToken = data.access_token;
-    if (typeof accessToken !== 'string' || !accessToken) {
-      this.logger.error(`OAuth token exchange failed: ${JSON.stringify(data)}`);
-      throw new BadRequestException('Failed to obtain access token from provider');
-    }
-
-    const expiresInRaw = data.expires_in;
-    const expiresIn =
-      typeof expiresInRaw === 'number'
-        ? expiresInRaw
-        : typeof expiresInRaw === 'string'
-          ? Number(expiresInRaw)
-          : null;
-
-    return {
-      accessToken,
-      refreshToken:
-        typeof data.refresh_token === 'string' ? data.refresh_token : null,
-      tokenType: typeof data.token_type === 'string' ? data.token_type : null,
-      expiresIn: Number.isFinite(expiresIn) ? expiresIn : null,
-      scope: typeof data.scope === 'string' ? data.scope : null,
-    };
-  }
-
-  private async postForm(url: string, body: URLSearchParams) {
-    try {
-      return await firstValueFrom(
-        this.httpService.post(url, body.toString(), {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        }),
-      );
-    } catch (error) {
-      this.logger.error(
-        `OAuth token request failed for ${url}: ${this.formatAxiosError(error)}`,
-      );
-      throw new BadRequestException('Failed to exchange authorization code');
-    }
-  }
-
-  private requireEnv(keys: string[]): void {
-    for (const key of keys) {
-      if (!this.configService.get<string>(key)) {
-        throw new NotImplementedException(
-          `${key} is not configured for this platform`,
-        );
-      }
-    }
-  }
-
-  private formatAxiosError(error: unknown): string {
-    if (typeof error !== 'object' || error === null) {
-      return String(error);
-    }
-
-    const axiosError = error as {
-      response?: { status?: number; data?: unknown };
-      message?: string;
-    };
-
-    return JSON.stringify({
-      status: axiosError.response?.status,
-      data: axiosError.response?.data,
-      message: axiosError.message,
-    });
   }
 }

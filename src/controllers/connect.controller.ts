@@ -59,6 +59,11 @@ export class ConnectController {
     return this.redirectCallback('tiktok', query, res);
   }
 
+  @Get('snapchat/callback')
+  snapchatCallback(@Query() query: OAuthCallbackQuery, @Res() res: Response) {
+    return this.redirectCallback('snapchat', query, res);
+  }
+
   @Get('thread/callback')
   threadCallback(@Query() query: OAuthCallbackQuery, @Res() res: Response) {
     return this.redirectCallback('thread', query, res);

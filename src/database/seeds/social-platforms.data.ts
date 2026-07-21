@@ -66,4 +66,12 @@ export const SOCIAL_PLATFORM_SEEDS: SocialPlatformSeed[] = [
     logo: null,
     status: SocialPlatformStatus.COMING_SOON,
   },
+  {
+    name: 'Snapchat',
+    slug: 'snapchat',
+    description: 'Connect your Snapchat account.',
+    icon: null,
+    logo: null,
+    status: SocialPlatformStatus.COMING_SOON,
+  },
 ];
