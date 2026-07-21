@@ -18,6 +18,7 @@ export { ProfileService } from './profile.service';
 export { PusherService } from './pusher.service';
 export { S3Service } from './s3.service';
 export { SocialAccountsService } from './social-accounts.service';
+export { SocialTokenCryptoService } from './social-token-crypto.service';
 export { SocialTokenVerifierService } from './social-token-verifier.service';
 export { UserAuthProviderService } from './user-auth-provider.service';
 export { ThreadsService } from './threads.service';

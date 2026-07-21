@@ -17,6 +17,7 @@ import {
   SocialAccountStatus,
 } from '../entities/social-account.entity';
 import { SocialPlatform } from '../entities/social-platform.entity';
+import { SocialTokenCryptoService } from './social-token-crypto.service';
 
 @Injectable()
 export class SocialAccountsService {
@@ -27,6 +28,7 @@ export class SocialAccountsService {
     private readonly socialAccountsRepository: Repository<SocialAccount>,
     @InjectRepository(SocialPlatform)
     private readonly socialPlatformsRepository: Repository<SocialPlatform>,
+    private readonly socialTokenCryptoService: SocialTokenCryptoService,
   ) {}
 
   async findActiveByUserAndPlatform(
@@ -57,7 +59,7 @@ export class SocialAccountsService {
       );
     }
 
-    return account;
+    return this.withDecryptedTokens(account);
   }
 
   async findAllActiveByPlatform(
@@ -73,12 +75,14 @@ export class SocialAccountsService {
       );
     }
 
-    return this.socialAccountsRepository.find({
+    const accounts = await this.socialAccountsRepository.find({
       where: {
         platformId: platform.id,
         status: SocialAccountStatus.ACTIVE,
       },
     });
+
+    return accounts.map((account) => this.withDecryptedTokens(account));
   }
 
   /**
@@ -194,8 +198,11 @@ export class SocialAccountsService {
 
     return this.socialAccountsRepository.save({
       ...account,
-      accessToken: token.accessToken,
-      refreshToken: token.refreshToken ?? account.refreshToken,
+      accessToken: this.socialTokenCryptoService.encrypt(token.accessToken),
+      refreshToken:
+        token.refreshToken != null
+          ? this.socialTokenCryptoService.encrypt(token.refreshToken)
+          : account.refreshToken,
       tokenType: token.tokenType ?? account.tokenType,
       expiresAt,
       scopes: token.scope
@@ -304,8 +311,11 @@ export class SocialAccountsService {
       username: profile.username,
       displayName: profile.displayName ?? null,
       profileImage: profile.profileImage ?? null,
-      accessToken: token.accessToken,
-      refreshToken: token.refreshToken ?? account?.refreshToken ?? null,
+      accessToken: this.socialTokenCryptoService.encrypt(token.accessToken),
+      refreshToken:
+        token.refreshToken != null
+          ? this.socialTokenCryptoService.encrypt(token.refreshToken)
+          : account?.refreshToken ?? null,
       tokenType: token.tokenType ?? account?.tokenType ?? null,
       expiresAt,
       scopes,
@@ -339,7 +349,11 @@ export class SocialAccountsService {
     if (!account.accessToken) {
       throw new UnauthorizedException('Stored access token is missing');
     }
-    return account.accessToken;
+    return this.socialTokenCryptoService.decrypt(account.accessToken) ?? '';
+  }
+
+  getRefreshToken(account: SocialAccount): string | null {
+    return this.socialTokenCryptoService.decrypt(account.refreshToken) ?? null;
   }
 
   private buildMetadata(
@@ -370,5 +384,13 @@ export class SocialAccountsService {
       status: account.status,
       connectedAt: account.connectedAt,
     };
+  }
+
+  private withDecryptedTokens(account: SocialAccount): SocialAccount {
+    account.accessToken =
+      this.socialTokenCryptoService.decrypt(account.accessToken) ?? '';
+    account.refreshToken =
+      this.socialTokenCryptoService.decrypt(account.refreshToken) ?? null;
+    return account;
   }
 }

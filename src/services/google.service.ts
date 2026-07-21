@@ -202,14 +202,15 @@ export class GoogleService {
         userId,
         'google',
       );
+    const refreshToken = this.socialAccountsService.getRefreshToken(account);
 
-    if (!account.refreshToken) {
+    if (!refreshToken) {
       throw new UnauthorizedException(
         'No Google refresh token stored for this user. Reconnect Google.',
       );
     }
 
-    const refreshed = await this.refreshToken(account.refreshToken);
+    const refreshed = await this.refreshToken(refreshToken);
     const updated = await this.socialAccountsService.updateTokens(
       account.id,
       refreshed,
@@ -244,7 +245,8 @@ export class GoogleService {
     }> = [];
 
     for (const account of accounts) {
-      if (!account.refreshToken) {
+      const refreshToken = this.socialAccountsService.getRefreshToken(account);
+      if (!refreshToken) {
         results.push({
           userId: account.userId,
           accountId: account.id,
@@ -255,7 +257,7 @@ export class GoogleService {
       }
 
       try {
-        const refreshed = await this.refreshToken(account.refreshToken);
+        const refreshed = await this.refreshToken(refreshToken);
         const updated = await this.socialAccountsService.updateTokens(
           account.id,
           refreshed,
@@ -656,13 +658,14 @@ export class GoogleService {
       account.expiresAt != null && account.expiresAt.getTime() <= Date.now();
 
     if (isExpired) {
-      if (!account.refreshToken) {
+      const refreshToken = this.socialAccountsService.getRefreshToken(account);
+      if (!refreshToken) {
         throw new UnauthorizedException(
           'Google access token expired and no refresh token is stored. Reconnect Google.',
         );
       }
 
-      const refreshed = await this.refreshToken(account.refreshToken);
+      const refreshed = await this.refreshToken(refreshToken);
       account = await this.socialAccountsService.updateTokens(
         account.id,
         refreshed,
