@@ -121,10 +121,13 @@ type ThreadPlatformMetadata = {
 
 type TikTokPublishOptions = {
   postPlatformId: string;
+  /** true = public, false = private */
+  privacyLevel: boolean;
 };
 
 type TikTokPlatformMetadata = {
   provider: 'tiktok';
+  privacyLevel: boolean;
 };
 
 type PlatformMetadata =
@@ -575,6 +578,7 @@ export class PostsService {
     if (tiktokPost && tiktokSocialAccountId) {
       const metadata: TikTokPlatformMetadata = {
         provider: 'tiktok',
+        privacyLevel: dto.privacyLevel === true,
       };
 
       const postPlatform = await this.postPlatformRepository.save(
@@ -592,6 +596,7 @@ export class PostsService {
 
       tiktokOptions = {
         postPlatformId: postPlatform.id,
+        privacyLevel: metadata.privacyLevel,
       };
     }
 
@@ -1001,6 +1006,7 @@ export class PostsService {
             tiktokResults.push(
               await this.publishTikTokPost(post.userId, post, {
                 postPlatformId: platform.id,
+                privacyLevel: meta.privacyLevel === true,
               }),
             );
           }
@@ -1828,6 +1834,7 @@ export class PostsService {
         description: description || null,
         videoUrl: videoUrl ?? null,
         imageUrls: videoUrl ? undefined : imageUrls,
+        privacyLevel: options.privacyLevel,
       });
 
       postPlatform.platformStatus = PlatformPostStatus.PUBLISHED;
@@ -1925,6 +1932,7 @@ export class PostsService {
       } else if (meta.provider === 'tiktok') {
         tiktok = {
           postPlatformId: platform.id,
+          privacyLevel: meta.privacyLevel === true,
         };
       }
     }

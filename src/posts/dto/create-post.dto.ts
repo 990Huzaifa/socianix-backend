@@ -180,4 +180,13 @@ export class CreatePostDto {
   @Transform(({ value }) => toBoolean(value))
   @IsBoolean()
   tiktokPost?: boolean;
+
+  /**
+   * TikTok privacy: true = PUBLIC_TO_EVERYONE, false = SELF_ONLY.
+   * Required when tiktokPost is true.
+   */
+  @ValidateIf((o: CreatePostDto) => o.tiktokPost === true)
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  privacyLevel?: boolean;
 }

@@ -12,7 +12,11 @@ export type CreateTikTokPostInput = {
   videoUrl?: string | null;
   /** Public image URL(s) for photo posts. */
   imageUrls?: string[];
-  privacyLevel?: string | null;
+  /**
+   * true = PUBLIC_TO_EVERYONE, false = SELF_ONLY.
+   * Still constrained to creator-available privacy options.
+   */
+  privacyLevel?: boolean | null;
 };
 
 @Injectable()
@@ -104,7 +108,7 @@ export class TikTokService {
   async getUserProfile(accessToken: string) {
     const { data } = await firstValueFrom(
       this.httpService.get(
-        'https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name,username',
+        'https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name',
         {
           headers: { Authorization: `Bearer ${accessToken}` },
           timeout: 15000,
@@ -117,12 +121,12 @@ export class TikTokService {
       (data as { user?: Record<string, unknown> }).user ??
       data;
     const platformUserId = String(
-      user.open_id ?? user.union_id ?? user.username ?? 'unknown',
+      user.open_id ?? user.union_id ?? 'unknown',
     );
 
     return {
       platformUserId,
-      username: String(user.username ?? user.display_name ?? platformUserId),
+      username: String(user.display_name ?? platformUserId),
       displayName:
         typeof user.display_name === 'string' ? user.display_name : null,
       profileImage:
@@ -243,11 +247,27 @@ export class TikTokService {
 
   private resolvePrivacyLevel(
     options: string[] | undefined,
-    preferred?: string | null,
+    isPublic?: boolean | null,
   ): string {
     const available = Array.isArray(options) ? options.filter(Boolean) : [];
+    const preferred =
+      isPublic === true
+        ? 'PUBLIC_TO_EVERYONE'
+        : isPublic === false
+          ? 'SELF_ONLY'
+          : null;
+
     if (preferred && available.includes(preferred)) {
       return preferred;
+    }
+
+    // If public requested but not available, fall through preference order.
+    // If private requested but not available, prefer SELF_ONLY then safest option.
+    if (isPublic === false) {
+      if (available.includes('SELF_ONLY')) {
+        return 'SELF_ONLY';
+      }
+      return available[0] ?? 'SELF_ONLY';
     }
 
     const preferenceOrder = [
