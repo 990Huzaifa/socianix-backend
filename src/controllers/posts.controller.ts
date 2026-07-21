@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -17,6 +18,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { User } from '../entities/user.entity';
 import { CreatePostDto } from '../posts/dto/create-post.dto';
 import { ListPostsQueryDto } from '../posts/dto/list-posts-query.dto';
+import { PublishPostDto } from '../posts/dto/publish-post.dto';
 import { PostsService } from '../services/posts.service';
 
 @Controller('posts')
@@ -51,6 +53,11 @@ export class PostsController {
     return this.postsService.create(user.id, dto, files ?? []);
   }
 
+  @Post('publish')
+  publishDraft(@CurrentUser() user: User, @Body() dto: PublishPostDto) {
+    return this.postsService.publishDraft(user.id, dto.postId);
+  }
+
   @Get()
   findAll(@CurrentUser() user: User, @Query() query: ListPostsQueryDto) {
     return this.postsService.findAllForUser(user.id, {
@@ -65,5 +72,13 @@ export class PostsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.postsService.findOneForUser(user.id, id);
+  }
+
+  @Delete(':id')
+  remove(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.postsService.deleteForUser(user.id, id);
   }
 }

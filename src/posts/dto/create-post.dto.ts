@@ -22,6 +22,13 @@ export const GOOGLE_CTA_ACTION_TYPES = [
 
 export type GoogleCtaActionType = (typeof GOOGLE_CTA_ACTION_TYPES)[number];
 
+/** Client-facing create intents. `Published` is set server-side after publish finishes. */
+export enum CreatePostStatus {
+  DRAFT = 'Draft',
+  SCHEDULED = 'Scheduled',
+  PUBLISHING = 'Publishing',
+}
+
 const CTA_ACTIONS_REQUIRING_URL: GoogleCtaActionType[] = [
   'BOOK',
   'ORDER',
@@ -55,8 +62,12 @@ export class CreatePostDto {
   @MaxLength(10000)
   caption?: string;
 
-  @IsOptional()
+  @IsEnum(CreatePostStatus)
+  postStatus: CreatePostStatus;
+
+  @ValidateIf((o: CreatePostDto) => o.postStatus === CreatePostStatus.SCHEDULED)
   @IsDateString()
+  @IsNotEmpty()
   scheduledAt?: string;
 
   @IsOptional()

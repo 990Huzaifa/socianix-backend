@@ -5,7 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { PutObjectCommand, DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
 
@@ -95,6 +95,46 @@ export class S3Service implements OnModuleInit {
     const bucket = this.getBucketName();
     const region = this.getRegion();
     return `https://${bucket}.s3.${region}.amazonaws.com/${key.replace(/^\/+/, '')}`;
+  }
+
+  extractKeyFromUrl(url: string): string | null {
+    if (!this.bucketName || !this.region) {
+      return null;
+    }
+
+    try {
+      const parsed = new URL(url);
+      const expectedHost = `${this.bucketName}.s3.${this.region}.amazonaws.com`;
+      if (parsed.hostname !== expectedHost) {
+        return null;
+      }
+
+      const key = parsed.pathname.replace(/^\/+/, '');
+      return key || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async deleteByUrl(url: string): Promise<boolean> {
+    if (!this.isEnabled()) {
+      return false;
+    }
+
+    const key = this.extractKeyFromUrl(url);
+    if (!key) {
+      return false;
+    }
+
+    await this.getClient().send(
+      new DeleteObjectCommand({
+        Bucket: this.getBucketName(),
+        Key: key,
+      }),
+    );
+
+    this.logger.log(`Deleted from S3 key=${key}`);
+    return true;
   }
 
   buildObjectKey(folder: 'image' | 'video', originalName: string): string {

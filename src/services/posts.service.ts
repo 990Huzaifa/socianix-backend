@@ -12,7 +12,11 @@ import {
   PlatformPostStatus,
   PostPlatform,
 } from '../entities/post-platform.entity';
-import { CreatePostDto, GoogleCtaActionType } from '../posts/dto/create-post.dto';
+import {
+  CreatePostDto,
+  CreatePostStatus,
+  GoogleCtaActionType,
+} from '../posts/dto/create-post.dto';
 import {
   PUSHER_EVENTS,
   userPrivateChannel,
@@ -144,16 +148,17 @@ export class PostsService {
   ) {}
 
   /**
-   * Uploads media to S3, saves post + S3 URLs in DB, returns immediately,
-   * then finishes work in a Node background task and notifies via Pusher.
-   * When googlePost=true, also publishes to Google Business Profile
-   * (or defers until scheduledAt via cron).
+   * Uploads media to S3, saves post + platform rows in DB.
+   * - draft: returns immediately with no background work
+   * - scheduled: saves as Scheduled (cron publishes later), returns immediately
+   * - publish: background publish + Pusher notification
    */
   async create(
     userId: string,
     dto: CreatePostDto,
     files: UploadedMediaFile[] = [],
   ) {
+    const postStatus = dto.postStatus;
     const googlePost = dto.googlePost === true;
     const pinterestPost = dto.pinterestPost === true;
     const facebookPost = dto.facebookPost === true;
@@ -269,7 +274,28 @@ export class PostsService {
       }
     }
 
-    const scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : null;
+    let scheduledAt: Date | null = null;
+    if (postStatus === CreatePostStatus.SCHEDULED) {
+      if (!dto.scheduledAt?.trim()) {
+        throw new BadRequestException(
+          'scheduledAt is required when postStatus is Scheduled',
+        );
+      }
+      scheduledAt = new Date(dto.scheduledAt);
+      if (Number.isNaN(scheduledAt.getTime())) {
+        throw new BadRequestException('scheduledAt must be a valid date');
+      }
+      if (scheduledAt.getTime() <= Date.now()) {
+        throw new BadRequestException('scheduledAt must be in the future');
+      }
+    }
+
+    const initialStatus =
+      postStatus === CreatePostStatus.DRAFT
+        ? PostStatus.DRAFT
+        : postStatus === CreatePostStatus.SCHEDULED
+          ? PostStatus.SCHEDULED
+          : PostStatus.PUBLISHING;
 
     const post = await this.postsRepository.save(
       this.postsRepository.create({
@@ -277,7 +303,7 @@ export class PostsService {
         title: dto.title?.trim() || null,
         caption: dto.caption?.trim() || null,
         scheduledAt,
-        status: PostStatus.PUBLISHING,
+        status: initialStatus,
         publishedAt: null,
       }),
     );
@@ -511,28 +537,65 @@ export class PostsService {
       };
     }
 
-    setImmediate(() => {
-      void this.processCreateInBackground(post.id, userId, {
-        google: googleOptions,
-        pinterest: pinterestOptions,
-        facebook: facebookOptions,
-        instagram: instagramOptions,
-        linkedin: linkedinOptions,
-        linkedinOrganization: linkedinOrganizationOptions,
-        thread: threadOptions,
+    if (postStatus === CreatePostStatus.PUBLISHING) {
+      setImmediate(() => {
+        void this.processCreateInBackground(post.id, userId, {
+          google: googleOptions,
+          pinterest: pinterestOptions,
+          facebook: facebookOptions,
+          instagram: instagramOptions,
+          linkedin: linkedinOptions,
+          linkedinOrganization: linkedinOrganizationOptions,
+          thread: threadOptions,
+        });
       });
-    });
 
-    this.logger.log(
-      `Post create accepted; background processing started postId=${post.id} user=${userId}`,
-    );
+      this.logger.log(
+        `Post publish accepted; background processing started postId=${post.id} user=${userId}`,
+      );
+
+      return {
+        message: 'Post is processing',
+        status: PostStatus.PUBLISHING,
+        postId: post.id,
+        channel: userPrivateChannel(userId),
+        event: PUSHER_EVENTS.POST_PROCESSED,
+        googlePost,
+        pinterestPost,
+        facebookPost,
+        instagramPost,
+        linkedinPost,
+        linkedinOrganizationPost,
+        threadPost,
+      };
+    }
+
+    if (postStatus === CreatePostStatus.SCHEDULED) {
+      this.logger.log(
+        `Post scheduled postId=${post.id} user=${userId} scheduledAt=${scheduledAt?.toISOString()}`,
+      );
+
+      return {
+        message: 'Post scheduled successfully',
+        status: PostStatus.SCHEDULED,
+        postId: post.id,
+        scheduledAt,
+        googlePost,
+        pinterestPost,
+        facebookPost,
+        instagramPost,
+        linkedinPost,
+        linkedinOrganizationPost,
+        threadPost,
+      };
+    }
+
+    this.logger.log(`Post draft saved postId=${post.id} user=${userId}`);
 
     return {
-      message: 'Post is processing',
-      status: 'processing',
+      message: 'Post created successfully',
+      status: PostStatus.DRAFT,
       postId: post.id,
-      channel: userPrivateChannel(userId),
-      event: PUSHER_EVENTS.POST_PROCESSED,
       googlePost,
       pinterestPost,
       facebookPost,
@@ -580,6 +643,99 @@ export class PostsService {
     }
 
     return this.toPostResponse(post);
+  }
+
+  async deleteForUser(userId: string, postId: string) {
+    const post = await this.postsRepository.findOne({
+      where: { id: postId, userId },
+      relations: { media: true },
+    });
+
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    const mediaUrls = (post.media ?? [])
+      .map((item) => item.url)
+      .filter((url) => url.trim().length > 0);
+
+    if (this.s3Service.isEnabled()) {
+      for (const url of mediaUrls) {
+        try {
+          await this.s3Service.deleteByUrl(url);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          this.logger.warn(
+            `Failed to delete S3 media for postId=${postId} url=${url}: ${message}`,
+          );
+        }
+      }
+    }
+
+    await this.postsRepository.delete({ id: postId, userId });
+
+    this.logger.log(`Post deleted postId=${postId} user=${userId}`);
+
+    return {
+      message: 'Post deleted successfully',
+      postId,
+    };
+  }
+
+  /**
+   * Publishes an existing draft post: returns immediately, then publishes in background
+   * and notifies via Pusher (same flow as create with postStatus=Publishing).
+   */
+  async publishDraft(userId: string, postId: string) {
+    const post = await this.postsRepository.findOne({
+      where: { id: postId, userId },
+      relations: { platforms: true },
+    });
+
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    if (post.status !== PostStatus.DRAFT) {
+      throw new BadRequestException('Only draft posts can be published');
+    }
+
+    const platforms = post.platforms ?? [];
+    if (!platforms.length) {
+      throw new BadRequestException(
+        'Post has no platforms configured to publish',
+      );
+    }
+
+    const publishOptions = this.buildPublishOptionsFromPlatforms(platforms);
+
+    post.status = PostStatus.PUBLISHING;
+    post.publishedAt = null;
+    await this.postsRepository.save(post);
+
+    setImmediate(() => {
+      void this.processCreateInBackground(post.id, userId, publishOptions);
+    });
+
+    this.logger.log(
+      `Draft publish accepted; background processing started postId=${post.id} user=${userId}`,
+    );
+
+    return {
+      message: 'Post is processing',
+      status: PostStatus.PUBLISHING,
+      postId: post.id,
+      channel: userPrivateChannel(userId),
+      event: PUSHER_EVENTS.POST_PROCESSED,
+      googlePost: publishOptions.google !== null,
+      pinterestPost: publishOptions.pinterest !== null,
+      facebookPost: publishOptions.facebook !== null,
+      instagramPost: publishOptions.instagram !== null,
+      linkedinPost: publishOptions.linkedin !== null,
+      linkedinOrganizationPost: publishOptions.linkedinOrganization !== null,
+      threadPost: publishOptions.thread !== null,
+    };
   }
 
   /**
@@ -860,6 +1016,27 @@ export class PostsService {
       const platforms = await this.postPlatformRepository.find({
         where: { postId },
       });
+
+      if (post.status === PostStatus.PUBLISHING) {
+        const anyFailed = platforms.some(
+          (p) => p.platformStatus === PlatformPostStatus.FAILED,
+        );
+        const anyPublished = platforms.some(
+          (p) => p.platformStatus === PlatformPostStatus.PUBLISHED,
+        );
+
+        if (anyPublished) {
+          post.status = PostStatus.PUBLISHED;
+          post.publishedAt = new Date();
+        } else if (anyFailed) {
+          post.status = PostStatus.FAILED;
+        } else {
+          post.status = PostStatus.PUBLISHED;
+          post.publishedAt = new Date();
+        }
+
+        await this.postsRepository.save(post);
+      }
 
       await this.pusherService.triggerUserEvent(
         userId,
@@ -1434,6 +1611,83 @@ export class PostsService {
     }
   }
 
+  private buildPublishOptionsFromPlatforms(platforms: PostPlatform[]): {
+    google: GooglePublishOptions | null;
+    pinterest: PinterestPublishOptions | null;
+    facebook: FacebookPublishOptions | null;
+    instagram: InstagramPublishOptions | null;
+    linkedin: LinkedInPublishOptions | null;
+    linkedinOrganization: LinkedInOrganizationPublishOptions | null;
+    thread: ThreadPublishOptions | null;
+  } {
+    let google: GooglePublishOptions | null = null;
+    let pinterest: PinterestPublishOptions | null = null;
+    let facebook: FacebookPublishOptions | null = null;
+    let instagram: InstagramPublishOptions | null = null;
+    let linkedin: LinkedInPublishOptions | null = null;
+    let linkedinOrganization: LinkedInOrganizationPublishOptions | null = null;
+    let thread: ThreadPublishOptions | null = null;
+
+    for (const platform of platforms) {
+      const meta = platform.metadata as PlatformMetadata | null;
+      if (!meta?.provider) {
+        continue;
+      }
+
+      if (meta.provider === 'google') {
+        google = {
+          postPlatformId: platform.id,
+          accountId: meta.accountId,
+          locationId: meta.locationId,
+          actionType: meta.actionType,
+          ctaUrl: meta.ctaUrl ?? null,
+        };
+      } else if (meta.provider === 'pinterest') {
+        pinterest = {
+          postPlatformId: platform.id,
+          boardId: meta.boardId,
+          link: meta.link ?? null,
+        };
+      } else if (meta.provider === 'facebook') {
+        facebook = {
+          postPlatformId: platform.id,
+          pageId: meta.pageId,
+          link: meta.link ?? null,
+        };
+      } else if (meta.provider === 'instagram') {
+        instagram = {
+          postPlatformId: platform.id,
+          instagramId: meta.instagramId,
+        };
+      } else if (meta.provider === 'linkedin') {
+        linkedin = {
+          postPlatformId: platform.id,
+          link: meta.link ?? null,
+        };
+      } else if (meta.provider === 'linkedin_organization') {
+        linkedinOrganization = {
+          postPlatformId: platform.id,
+          organizationId: meta.organizationId,
+          link: meta.link ?? null,
+        };
+      } else if (meta.provider === 'thread') {
+        thread = {
+          postPlatformId: platform.id,
+        };
+      }
+    }
+
+    return {
+      google,
+      pinterest,
+      facebook,
+      instagram,
+      linkedin,
+      linkedinOrganization,
+      thread,
+    };
+  }
+
   private async finalizeCreateProcessing(
     postId: string,
     userId: string,
@@ -1445,6 +1699,10 @@ export class PostsService {
 
     if (!post) {
       throw new NotFoundException('Post not found');
+    }
+
+    if (post.status === PostStatus.PUBLISHING) {
+      return post;
     }
 
     const now = Date.now();
