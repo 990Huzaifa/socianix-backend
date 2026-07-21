@@ -12,6 +12,10 @@
       {
         "include": "mail/assets/**/*",
         "watchAssets": true
+      },
+      {
+        "include": "database/*.txt",
+        "watchAssets": true
       }
     ]
   }
