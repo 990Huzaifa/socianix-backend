@@ -94,7 +94,7 @@ export class S3Service implements OnModuleInit {
   getPublicUrl(key: string): string {
     const bucket = this.getBucketName();
     const region = this.getRegion();
-    return `https://${bucket}.s3.${region}.amazonaws.com/${key.replace(/^\/+/, '')}`;
+    return `https://media.socialsyncc.com/`;
   }
 
   extractKeyFromUrl(url: string): string | null {
