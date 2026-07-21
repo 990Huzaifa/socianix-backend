@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThanOrEqual, Repository } from 'typeorm';
+import { And, LessThan, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { Post, PostStatus } from '../entities/post.entity';
 import { PostMedia, PostMediaType } from '../entities/post-media.entity';
 import {
@@ -17,6 +17,7 @@ import {
   CreatePostStatus,
   GoogleCtaActionType,
 } from '../posts/dto/create-post.dto';
+import { PostsAnalyticsRange } from '../posts/dto/posts-analytics-query.dto';
 import {
   PUSHER_EVENTS,
   userPrivateChannel,
@@ -680,6 +681,90 @@ export class PostsService {
     return {
       message: 'Post deleted successfully',
       postId,
+    };
+  }
+
+  async analyticsForUser(
+    userId: string,
+    options: { range?: PostsAnalyticsRange; timezone?: string } = {},
+  ) {
+    const range = options.range ?? PostsAnalyticsRange.DAYS_30;
+    const timezone = this.resolveTimezone(options.timezone);
+    const days = this.resolveAnalyticsRangeDays(range);
+    const now = new Date();
+    const periodStart = this.shiftDays(now, -days);
+    const previousPeriodStart = this.shiftDays(periodStart, -days);
+
+    const [periodPosts, previousPeriodTotal, scheduledPosts] = await Promise.all([
+      this.postsRepository.find({
+        where: {
+          userId,
+          createdAt: MoreThanOrEqual(periodStart),
+        },
+        relations: { platforms: true },
+        order: { createdAt: 'ASC' },
+      }),
+      this.postsRepository.count({
+        where: {
+          userId,
+          createdAt: And(
+            MoreThanOrEqual(previousPeriodStart),
+            LessThan(periodStart),
+          ),
+        },
+      }),
+      this.postsRepository.find({
+        where: {
+          userId,
+          status: PostStatus.SCHEDULED,
+          scheduledAt: MoreThanOrEqual(now),
+        },
+        select: { id: true, scheduledAt: true },
+        order: { scheduledAt: 'ASC' },
+      }),
+    ]);
+
+    const totalPosts = periodPosts.length;
+    const published = periodPosts.filter(
+      (post) => post.status === PostStatus.PUBLISHED,
+    ).length;
+    const failed = periodPosts.filter(
+      (post) => post.status === PostStatus.FAILED,
+    ).length;
+    const scheduled = scheduledPosts.length;
+    const totalPostsChangePercent =
+      previousPeriodTotal > 0
+        ? Math.round(
+            ((totalPosts - previousPeriodTotal) / previousPeriodTotal) * 100,
+          )
+        : totalPosts > 0
+          ? 100
+          : 0;
+    const publishedPercent =
+      totalPosts > 0 ? Math.round((published / totalPosts) * 100) : 0;
+    const nextScheduledAt = scheduledPosts[0]?.scheduledAt ?? null;
+
+    return {
+      range,
+      timezone,
+      summary: {
+        totalPosts,
+        totalPostsChangePercent,
+        published,
+        publishedPercent,
+        scheduled,
+        nextScheduledIn: this.formatNextScheduledIn(nextScheduledAt, now),
+        nextScheduledAt,
+        failed,
+      },
+      publishingTrend: this.buildPublishingTrend(periodPosts, {
+        range,
+        periodStart,
+        now,
+        timezone,
+      }),
+      platformDistribution: this.buildPlatformDistribution(periodPosts),
+      postingFrequency: this.buildPostingFrequency(periodPosts, timezone),
     };
   }
 
@@ -1746,6 +1831,190 @@ export class PostsService {
     throw new BadRequestException(
       `Unsupported media type "${mimeType}". Only image/* and video/* are allowed.`,
     );
+  }
+
+  private resolveTimezone(timezone?: string): string {
+    const value = timezone?.trim() || 'UTC';
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: value });
+      return value;
+    } catch {
+      return 'UTC';
+    }
+  }
+
+  private resolveAnalyticsRangeDays(range: PostsAnalyticsRange): number {
+    switch (range) {
+      case PostsAnalyticsRange.DAYS_7:
+        return 7;
+      case PostsAnalyticsRange.DAYS_90:
+        return 90;
+      case PostsAnalyticsRange.DAYS_30:
+      default:
+        return 30;
+    }
+  }
+
+  private shiftDays(date: Date, days: number): Date {
+    const shifted = new Date(date);
+    shifted.setDate(shifted.getDate() + days);
+    return shifted;
+  }
+
+  private formatNextScheduledIn(
+    scheduledAt: Date | null,
+    now: Date,
+  ): string | null {
+    if (!scheduledAt) {
+      return null;
+    }
+
+    const diffMs = scheduledAt.getTime() - now.getTime();
+    if (diffMs <= 0) {
+      return null;
+    }
+
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+    if (diffHours >= 24) {
+      return `${Math.floor(diffHours / 24)}d`;
+    }
+    if (diffHours > 0) {
+      return `${diffHours}h`;
+    }
+    return `${Math.max(diffMinutes, 1)}m`;
+  }
+
+  private buildPublishingTrend(
+    posts: Post[],
+    options: {
+      range: PostsAnalyticsRange;
+      periodStart: Date;
+      now: Date;
+      timezone: string;
+    },
+  ) {
+    const bucketCount =
+      options.range === PostsAnalyticsRange.DAYS_7 ? 7 : 5;
+    const rangeMs = options.now.getTime() - options.periodStart.getTime();
+    const bucketMs = rangeMs / bucketCount;
+
+    return Array.from({ length: bucketCount }, (_, index) => {
+      const start = new Date(options.periodStart.getTime() + bucketMs * index);
+      const end =
+        index === bucketCount - 1
+          ? options.now
+          : new Date(options.periodStart.getTime() + bucketMs * (index + 1));
+
+      let published = 0;
+      let failed = 0;
+
+      for (const post of posts) {
+        if (post.status === PostStatus.PUBLISHED) {
+          const at = post.publishedAt ?? post.createdAt;
+          if (at >= start && at < end) {
+            published += 1;
+          }
+        } else if (post.status === PostStatus.FAILED) {
+          const at = post.updatedAt ?? post.createdAt;
+          if (at >= start && at < end) {
+            failed += 1;
+          }
+        }
+      }
+
+      return {
+        date: this.formatTrendLabel(start, options.range, options.timezone),
+        published,
+        failed,
+        total: published + failed,
+      };
+    });
+  }
+
+  private buildPlatformDistribution(posts: Post[]) {
+    const counts = new Map<string, number>();
+
+    for (const post of posts) {
+      for (const platform of post.platforms ?? []) {
+        const meta = platform.metadata as PlatformMetadata | null;
+        const provider = meta?.provider;
+        if (!provider) {
+          continue;
+        }
+
+        const slug =
+          provider === 'linkedin_organization' ? 'linkedin' : provider;
+        counts.set(slug, (counts.get(slug) ?? 0) + 1);
+      }
+    }
+
+    const total = Array.from(counts.values()).reduce((sum, count) => sum + count, 0);
+
+    return Array.from(counts.entries())
+      .map(([slug, count]) => ({
+        platform: this.getPlatformLabel(slug),
+        slug,
+        count,
+        percent: total > 0 ? Math.round((count / total) * 100) : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  private buildPostingFrequency(posts: Post[], timezone: string) {
+    const dayOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const counts = new Map(dayOrder.map((day) => [day, 0]));
+
+    for (const post of posts) {
+      if (post.status !== PostStatus.PUBLISHED) {
+        continue;
+      }
+
+      const date = post.publishedAt ?? post.createdAt;
+      const day = this.getWeekdayLabel(date, timezone);
+      counts.set(day, (counts.get(day) ?? 0) + 1);
+    }
+
+    return dayOrder.map((day) => ({
+      day,
+      count: counts.get(day) ?? 0,
+    }));
+  }
+
+  private formatTrendLabel(
+    date: Date,
+    range: PostsAnalyticsRange,
+    timezone: string,
+  ): string {
+    const options: Intl.DateTimeFormatOptions =
+      range === PostsAnalyticsRange.DAYS_7
+        ? { weekday: 'short', timeZone: timezone }
+        : { month: 'short', day: 'numeric', timeZone: timezone };
+
+    return new Intl.DateTimeFormat('en-US', options).format(date);
+  }
+
+  private getWeekdayLabel(date: Date, timezone: string): string {
+    const label = new Intl.DateTimeFormat('en-US', {
+      weekday: 'short',
+      timeZone: timezone,
+    }).format(date);
+
+    return label.slice(0, 3);
+  }
+
+  private getPlatformLabel(slug: string): string {
+    const labels: Record<string, string> = {
+      google: 'Google',
+      pinterest: 'Pinterest',
+      facebook: 'Facebook',
+      instagram: 'Instagram',
+      linkedin: 'LinkedIn',
+      thread: 'Threads',
+    };
+
+    return labels[slug] ?? slug;
   }
 
   /** Plain response object — avoids circular Post ↔ media/platforms JSON. */
