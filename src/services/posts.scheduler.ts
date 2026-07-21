@@ -21,7 +21,7 @@ export class PostsSchedulerService {
       const result = await this.postsService.processDueScheduledPosts();
       if (result.processed > 0) {
         this.logger.log(
-          `Scheduled posts cron finished processed=${result.processed} published=${result.published} failed=${result.failed}`,
+          `Scheduled cron: ${result.published} ok, ${result.failed} fail`,
         );
       }
     } catch (error) {

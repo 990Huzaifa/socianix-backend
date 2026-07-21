@@ -748,7 +748,7 @@ export class PostsService {
         status: PostStatus.SCHEDULED,
         scheduledAt: LessThanOrEqual(now),
       },
-      relations: { media: true, platforms: true },
+      select: { id: true, scheduledAt: true },
       order: { scheduledAt: 'ASC' },
       take: 50,
     });
