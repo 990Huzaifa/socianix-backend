@@ -12,8 +12,6 @@ export class MailService {
   private readonly logger = new Logger(MailService.name);
   private readonly mailDir = this.resolveMailDir();
   private readonly templatesDir = path.join(this.mailDir, 'templates');
-  private readonly assetsDir = path.join(this.mailDir, 'assets');
-  private cachedLogoSrc: string | null | undefined;
   private brevoClient: BrevoClient | null = null;
 
   constructor(private readonly configService: ConfigService) {
@@ -180,8 +178,12 @@ export class MailService {
     return this.configService.getOrThrow<string>(envKey);
   }
 
+  /** Public logo URL used in every email template (`{{logoUrl}}`). */
   private logoUrl(): string {
-    return 'https://media.socialsyncc.com/logo.png';
+    return (
+      this.configService.get<string>('LOGOS_URL')?.trim() ||
+      'https://media.socialsyncc.com/logo.png'
+    );
   }
 
   private renderTemplate(
