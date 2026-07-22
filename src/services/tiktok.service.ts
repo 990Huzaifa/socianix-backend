@@ -12,11 +12,6 @@ export type CreateTikTokPostInput = {
   videoUrl?: string | null;
   /** Public image URL(s) for photo posts. */
   imageUrls?: string[];
-  /**
-   * true = PUBLIC_TO_EVERYONE, false = SELF_ONLY.
-   * Still constrained to creator-available privacy options.
-   */
-  privacyLevel?: boolean | null;
 };
 
 @Injectable()
@@ -165,10 +160,7 @@ export class TikTokService {
     }
 
     const creatorInfo = await this.queryCreatorInfo(accessToken);
-    const privacyLevel = this.resolvePrivacyLevel(
-      creatorInfo.privacy_level_options,
-      input.privacyLevel,
-    );
+    const privacyLevel = 'SELF_ONLY';
 
     const title = (input.title?.trim() || input.description?.trim() || '').slice(
       0,
@@ -245,46 +237,6 @@ export class TikTokService {
     };
   }
 
-  private resolvePrivacyLevel(
-    options: string[] | undefined,
-    isPublic?: boolean | null,
-  ): string {
-    const available = Array.isArray(options) ? options.filter(Boolean) : [];
-    const preferred =
-      isPublic === true
-        ? 'PUBLIC_TO_EVERYONE'
-        : isPublic === false
-          ? 'SELF_ONLY'
-          : null;
-
-    if (preferred && available.includes(preferred)) {
-      return preferred;
-    }
-
-    // If public requested but not available, fall through preference order.
-    // If private requested but not available, prefer SELF_ONLY then safest option.
-    if (isPublic === false) {
-      if (available.includes('SELF_ONLY')) {
-        return 'SELF_ONLY';
-      }
-      return available[0] ?? 'SELF_ONLY';
-    }
-
-    const preferenceOrder = [
-      'PUBLIC_TO_EVERYONE',
-      'MUTUAL_FOLLOW_FRIENDS',
-      'FOLLOWER_OF_CREATOR',
-      'SELF_ONLY',
-    ];
-
-    for (const level of preferenceOrder) {
-      if (available.includes(level)) {
-        return level;
-      }
-    }
-
-    return available[0] ?? 'SELF_ONLY';
-  }
 
   private async initVideoPost(
     accessToken: string,
