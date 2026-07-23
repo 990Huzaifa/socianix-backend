@@ -5,6 +5,12 @@ import { firstValueFrom } from 'rxjs';
 import { OAuthTokenResult } from '../connect/types/oauth.types';
 import { SocialAccountsService } from './social-accounts.service';
 
+/** Trial apps must use sandbox. Set `PINTEREST_USE_SANDBOX=false` for production. */
+const PINTEREST_API_HOSTS = {
+  sandbox: 'https://api-sandbox.pinterest.com',
+  production: 'https://api.pinterest.com',
+} as const;
+
 @Injectable()
 export class PinterestService {
   private readonly logger = new Logger(PinterestService.name);
@@ -14,6 +20,27 @@ export class PinterestService {
     private readonly configService: ConfigService,
     private readonly socialAccountsService: SocialAccountsService,
   ) {}
+
+  /**
+   * Switch with env `PINTEREST_USE_SANDBOX` (`true` / `false`).
+   * Defaults to sandbox while the app has Trial access.
+   */
+  getApiBaseUrl(): string {
+    const raw = this.configService.get<string>('PINTEREST_USE_SANDBOX');
+    const useSandbox =
+      raw === undefined || raw === null || raw.trim() === ''
+        ? true
+        : !['false', '0', 'no', 'off'].includes(raw.trim().toLowerCase());
+
+    return useSandbox
+      ? PINTEREST_API_HOSTS.sandbox
+      : PINTEREST_API_HOSTS.production;
+  }
+
+  private apiUrl(path: string): string {
+    const normalized = path.startsWith('/') ? path : `/${path}`;
+    return `${this.getApiBaseUrl()}${normalized}`;
+  }
 
   getRedirectUri(): string {
     return (
@@ -40,7 +67,7 @@ export class PinterestService {
     try {
       const { data } = await firstValueFrom(
         this.httpService.post(
-          'https://api.pinterest.com/v5/oauth/token',
+          this.apiUrl('/v5/oauth/token'),
           body.toString(),
           {
             headers: {
@@ -66,7 +93,7 @@ export class PinterestService {
   async getUserProfile(accessToken: string) {
     const { data } = await this.request(
       'GET',
-      'https://api.pinterest.com/v5/user_account',
+      this.apiUrl('/v5/user_account'),
       accessToken,
     );
 
@@ -92,7 +119,7 @@ export class PinterestService {
 
     const { data } = await this.request(
       'GET',
-      `https://api.pinterest.com/v5/boards?${params.toString()}`,
+      this.apiUrl(`/v5/boards?${params.toString()}`),
       accessToken,
     );
 
@@ -102,7 +129,7 @@ export class PinterestService {
   async getBoard(accessToken: string, boardId: string) {
     const { data } = await this.request(
       'GET',
-      `https://api.pinterest.com/v5/boards/${encodeURIComponent(boardId)}`,
+      this.apiUrl(`/v5/boards/${encodeURIComponent(boardId)}`),
       accessToken,
     );
 
@@ -214,7 +241,7 @@ export class PinterestService {
 
     const { data } = await this.request(
       'POST',
-      'https://api.pinterest.com/v5/pins',
+      this.apiUrl('/v5/pins'),
       accessToken,
       body,
     );
