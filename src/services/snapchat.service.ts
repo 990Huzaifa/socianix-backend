@@ -125,10 +125,11 @@ export class SnapchatService {
     if (!id) {
       throw new BadRequestException('Snapchat profile id is required');
     }
-
+    const url = `${MARKETING_API_BASE}/public/v1/public_profiles/${encodeURIComponent(id)}`;
+    console.log('url', url);
     const data = await this.requestJson(
       'GET',
-      `${MARKETING_API_BASE}/public/v1/public_profiles/${encodeURIComponent(id)}`,
+      url,
       accessToken,
     );
 
