@@ -16,6 +16,7 @@ import {
   CreatePostDto,
   CreatePostStatus,
   GoogleCtaActionType,
+  SnapchatPostType,
 } from '../posts/dto/create-post.dto';
 import { PostsAnalyticsRange } from '../posts/dto/posts-analytics-query.dto';
 import {
@@ -28,6 +29,7 @@ import { MetaService } from './meta.service';
 import { PinterestService } from './pinterest.service';
 import { PusherService } from './pusher.service';
 import { S3Service } from './s3.service';
+import { SnapchatService } from './snapchat.service';
 import { SocialAccountsService } from './social-accounts.service';
 import { ThreadsService } from './threads.service';
 import { TikTokService } from './tiktok.service';
@@ -127,6 +129,18 @@ type TikTokPlatformMetadata = {
   provider: 'tiktok';
 };
 
+type SnapchatPublishOptions = {
+  postPlatformId: string;
+  postType: SnapchatPostType;
+  profileId?: string | null;
+};
+
+type SnapchatPlatformMetadata = {
+  provider: 'snapchat';
+  postType: SnapchatPostType;
+  profileId?: string | null;
+};
+
 type PlatformMetadata =
   | GooglePlatformMetadata
   | PinterestPlatformMetadata
@@ -135,7 +149,8 @@ type PlatformMetadata =
   | LinkedInPlatformMetadata
   | LinkedInOrganizationPlatformMetadata
   | ThreadPlatformMetadata
-  | TikTokPlatformMetadata;
+  | TikTokPlatformMetadata
+  | SnapchatPlatformMetadata;
 
 @Injectable()
 export class PostsService {
@@ -156,6 +171,7 @@ export class PostsService {
     private readonly linkedInService: LinkedInService,
     private readonly threadsService: ThreadsService,
     private readonly tiktokService: TikTokService,
+    private readonly snapchatService: SnapchatService,
     private readonly socialAccountsService: SocialAccountsService,
   ) {}
 
@@ -179,12 +195,14 @@ export class PostsService {
     const linkedinOrganizationPost = dto.linkedinOrganizationPost === true;
     const threadPost = dto.threadPost === true;
     const tiktokPost = dto.tiktokPost === true;
+    const snapchatPost = dto.snapchatPost === true;
     let googleSocialAccountId: string | null = null;
     let pinterestSocialAccountId: string | null = null;
     let metaSocialAccountId: string | null = null;
     let linkedinSocialAccountId: string | null = null;
     let threadSocialAccountId: string | null = null;
     let tiktokSocialAccountId: string | null = null;
+    let snapchatSocialAccountId: string | null = null;
 
     if (googlePost) {
       const googleAccount =
@@ -308,6 +326,43 @@ export class PostsService {
       }
     }
 
+    if (snapchatPost) {
+      const snapchatAccount =
+        await this.socialAccountsService.findActiveByUserAndPlatform(
+          userId,
+          'snapchat',
+        );
+      snapchatSocialAccountId = snapchatAccount.id;
+
+      if (!dto.snapchatPostType) {
+        throw new BadRequestException(
+          'snapchatPostType is required when snapchatPost is true',
+        );
+      }
+
+      if (dto.snapchatPostType === 'SPOTLIGHT') {
+        const hasVideo = files.some((file) =>
+          file.mimetype.startsWith('video/'),
+        );
+        if (!hasVideo) {
+          throw new BadRequestException(
+            'At least one video file is required for Snapchat Spotlight posts',
+          );
+        }
+      } else {
+        const hasMedia = files.some(
+          (file) =>
+            file.mimetype.startsWith('image/') ||
+            file.mimetype.startsWith('video/'),
+        );
+        if (!hasMedia) {
+          throw new BadRequestException(
+            'At least one image or video file is required when snapchatPost is true',
+          );
+        }
+      }
+    }
+
     let scheduledAt: Date | null = null;
     if (postStatus === CreatePostStatus.SCHEDULED) {
       if (!dto.scheduledAt?.trim()) {
@@ -384,6 +439,7 @@ export class PostsService {
       null;
     let threadOptions: ThreadPublishOptions | null = null;
     let tiktokOptions: TikTokPublishOptions | null = null;
+    let snapchatOptions: SnapchatPublishOptions | null = null;
 
     if (googlePost && googleSocialAccountId) {
       const actionType = dto.googleCtaActionType!;
@@ -595,6 +651,33 @@ export class PostsService {
       };
     }
 
+    if (snapchatPost && snapchatSocialAccountId) {
+      const metadata: SnapchatPlatformMetadata = {
+        provider: 'snapchat',
+        postType: dto.snapchatPostType!,
+        profileId: dto.snapchatProfileId?.trim() || null,
+      };
+
+      const postPlatform = await this.postPlatformRepository.save(
+        this.postPlatformRepository.create({
+          postId: post.id,
+          socialAccountId: snapchatSocialAccountId,
+          socialPageId: null,
+          platformStatus: PlatformPostStatus.PENDING,
+          platformPostId: null,
+          publishedAt: null,
+          errorMessage: null,
+          metadata,
+        }),
+      );
+
+      snapchatOptions = {
+        postPlatformId: postPlatform.id,
+        postType: metadata.postType,
+        profileId: metadata.profileId,
+      };
+    }
+
     if (postStatus === CreatePostStatus.PUBLISHING) {
       setImmediate(() => {
         void this.processCreateInBackground(post.id, userId, {
@@ -606,6 +689,7 @@ export class PostsService {
           linkedinOrganization: linkedinOrganizationOptions,
           thread: threadOptions,
           tiktok: tiktokOptions,
+          snapchat: snapchatOptions,
         });
       });
 
@@ -627,6 +711,7 @@ export class PostsService {
         linkedinOrganizationPost,
         threadPost,
         tiktokPost,
+        snapchatPost,
       };
     }
 
@@ -648,6 +733,7 @@ export class PostsService {
         linkedinOrganizationPost,
         threadPost,
         tiktokPost,
+        snapchatPost,
       };
     }
 
@@ -665,6 +751,7 @@ export class PostsService {
       linkedinOrganizationPost,
       threadPost,
       tiktokPost,
+      snapchatPost,
     };
   }
 
@@ -882,6 +969,7 @@ export class PostsService {
       linkedinOrganizationPost: publishOptions.linkedinOrganization !== null,
       threadPost: publishOptions.thread !== null,
       tiktokPost: publishOptions.tiktok !== null,
+      snapchatPost: publishOptions.snapchat !== null,
     };
   }
 
@@ -936,6 +1024,7 @@ export class PostsService {
         const linkedinOrganizationResults: Record<string, unknown>[] = [];
         const threadResults: Record<string, unknown>[] = [];
         const tiktokResults: Record<string, unknown>[] = [];
+        const snapchatResults: Record<string, unknown>[] = [];
 
         for (const platform of pendingPlatforms) {
           const meta = platform.metadata as PlatformMetadata | null;
@@ -1000,7 +1089,15 @@ export class PostsService {
           } else if (meta.provider === 'tiktok') {
             tiktokResults.push(
               await this.publishTikTokPost(post.userId, post, {
-                postPlatformId: platform.id
+                postPlatformId: platform.id,
+              }),
+            );
+          } else if (meta.provider === 'snapchat') {
+            snapchatResults.push(
+              await this.publishSnapchatPost(post.userId, post, {
+                postPlatformId: platform.id,
+                postType: meta.postType,
+                profileId: meta.profileId ?? null,
               }),
             );
           }
@@ -1057,6 +1154,8 @@ export class PostsService {
             threadResults,
             tiktok: tiktokResults[0] ?? null,
             tiktokResults,
+            snapchat: snapchatResults[0] ?? null,
+            snapchatResults,
             platforms,
             post: {
               id: post.id,
@@ -1105,6 +1204,7 @@ export class PostsService {
       linkedinOrganization: LinkedInOrganizationPublishOptions | null;
       thread: ThreadPublishOptions | null;
       tiktok: TikTokPublishOptions | null;
+      snapchat: SnapchatPublishOptions | null;
     },
   ) {
     this.logger.log(`Background processing postId=${postId}`);
@@ -1119,6 +1219,7 @@ export class PostsService {
       let linkedinOrganizationResult: Record<string, unknown> | null = null;
       let threadResult: Record<string, unknown> | null = null;
       let tiktokResult: Record<string, unknown> | null = null;
+      let snapchatResult: Record<string, unknown> | null = null;
 
       if (options.google) {
         googleResult = await this.publishGoogleBusinessPost(
@@ -1177,6 +1278,13 @@ export class PostsService {
           options.tiktok,
         );
       }
+      if (options.snapchat) {
+        snapchatResult = await this.publishSnapchatPost(
+          userId,
+          post,
+          options.snapchat,
+        );
+      }
 
       const platforms = await this.postPlatformRepository.find({
         where: { postId },
@@ -1219,6 +1327,7 @@ export class PostsService {
           linkedinOrganization: linkedinOrganizationResult,
           thread: threadResult,
           tiktok: tiktokResult,
+          snapchat: snapchatResult,
           platforms,
           post: {
             id: post.id,
@@ -1857,6 +1966,106 @@ export class PostsService {
     }
   }
 
+  private async publishSnapchatPost(
+    userId: string,
+    post: Post,
+    options: SnapchatPublishOptions,
+  ): Promise<Record<string, unknown>> {
+    const postPlatform = await this.postPlatformRepository.findOne({
+      where: { id: options.postPlatformId },
+    });
+
+    if (!postPlatform) {
+      return { status: 'Failed', error: 'Post platform row not found' };
+    }
+
+    if (post.status === PostStatus.SCHEDULED) {
+      return {
+        status: PlatformPostStatus.PENDING,
+        skipped: true,
+        reason: 'scheduled_for_later',
+      };
+    }
+
+    postPlatform.platformStatus = PlatformPostStatus.PUBLISHING;
+    await this.postPlatformRepository.save(postPlatform);
+
+    const sortedMedia = [...(post.media ?? [])].sort(
+      (a, b) => a.order - b.order,
+    );
+    const video = sortedMedia.find((item) => item.type === PostMediaType.VIDEO);
+    const image = sortedMedia.find((item) => item.type !== PostMediaType.VIDEO);
+
+    let mediaUrl: string | undefined;
+    let mediaType: 'IMAGE' | 'VIDEO' | undefined;
+
+    if (options.postType === 'SPOTLIGHT') {
+      mediaUrl = video?.url;
+      mediaType = 'VIDEO';
+    } else if (video?.url) {
+      mediaUrl = video.url;
+      mediaType = 'VIDEO';
+    } else if (image?.url) {
+      mediaUrl = image.url;
+      mediaType = 'IMAGE';
+    }
+
+    if (!mediaUrl || !mediaType) {
+      postPlatform.platformStatus = PlatformPostStatus.FAILED;
+      postPlatform.errorMessage =
+        options.postType === 'SPOTLIGHT'
+          ? 'Snapchat Spotlight requires a video'
+          : 'Snapchat post requires at least one image or video';
+      await this.postPlatformRepository.save(postPlatform);
+      return {
+        status: PlatformPostStatus.FAILED,
+        error: postPlatform.errorMessage,
+      };
+    }
+
+    try {
+      const created = await this.snapchatService.createPostForUser(userId, {
+        postType: options.postType,
+        profileId: options.profileId,
+        title: post.title?.trim() || null,
+        description: post.caption?.trim() || null,
+        mediaUrl,
+        mediaType,
+      });
+
+      postPlatform.platformStatus = PlatformPostStatus.PUBLISHED;
+      postPlatform.platformPostId =
+        (typeof created.postId === 'string' && created.postId) ||
+        created.mediaId ||
+        null;
+      postPlatform.publishedAt = new Date();
+      postPlatform.errorMessage = null;
+      await this.postPlatformRepository.save(postPlatform);
+
+      return {
+        status: PlatformPostStatus.PUBLISHED,
+        platformPostId: postPlatform.platformPostId,
+        kind: created.kind,
+        profileId: created.profileId,
+        mediaId: created.mediaId,
+        spotlightId:
+          'spotlightId' in created ? (created.spotlightId ?? null) : null,
+        savedStoryId:
+          'savedStoryId' in created ? (created.savedStoryId ?? null) : null,
+      };
+    } catch (error) {
+      const messageText =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Snapchat publish failed postId=${post.id}: ${messageText}`,
+      );
+      postPlatform.platformStatus = PlatformPostStatus.FAILED;
+      postPlatform.errorMessage = messageText;
+      await this.postPlatformRepository.save(postPlatform);
+      return { status: PlatformPostStatus.FAILED, error: messageText };
+    }
+  }
+
   private buildPublishOptionsFromPlatforms(platforms: PostPlatform[]): {
     google: GooglePublishOptions | null;
     pinterest: PinterestPublishOptions | null;
@@ -1866,6 +2075,7 @@ export class PostsService {
     linkedinOrganization: LinkedInOrganizationPublishOptions | null;
     thread: ThreadPublishOptions | null;
     tiktok: TikTokPublishOptions | null;
+    snapchat: SnapchatPublishOptions | null;
   } {
     let google: GooglePublishOptions | null = null;
     let pinterest: PinterestPublishOptions | null = null;
@@ -1875,6 +2085,7 @@ export class PostsService {
     let linkedinOrganization: LinkedInOrganizationPublishOptions | null = null;
     let thread: ThreadPublishOptions | null = null;
     let tiktok: TikTokPublishOptions | null = null;
+    let snapchat: SnapchatPublishOptions | null = null;
 
     for (const platform of platforms) {
       const meta = platform.metadata as PlatformMetadata | null;
@@ -1926,6 +2137,12 @@ export class PostsService {
         tiktok = {
           postPlatformId: platform.id,
         };
+      } else if (meta.provider === 'snapchat') {
+        snapchat = {
+          postPlatformId: platform.id,
+          postType: meta.postType,
+          profileId: meta.profileId ?? null,
+        };
       }
     }
 
@@ -1938,6 +2155,7 @@ export class PostsService {
       linkedinOrganization,
       thread,
       tiktok,
+      snapchat,
     };
   }
 

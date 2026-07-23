@@ -22,6 +22,15 @@ export const GOOGLE_CTA_ACTION_TYPES = [
 
 export type GoogleCtaActionType = (typeof GOOGLE_CTA_ACTION_TYPES)[number];
 
+/** Snapchat Public Profile content types */
+export const SNAPCHAT_POST_TYPES = [
+  'PUBLIC_STORY',
+  'SPOTLIGHT',
+  'SAVED_STORY',
+] as const;
+
+export type SnapchatPostType = (typeof SNAPCHAT_POST_TYPES)[number];
+
 /** Client-facing create intents. `Published` is set server-side after publish finishes. */
 export enum CreatePostStatus {
   DRAFT = 'Draft',
@@ -180,4 +189,24 @@ export class CreatePostDto {
   @Transform(({ value }) => toBoolean(value))
   @IsBoolean()
   tiktokPost?: boolean;
+
+  /** Snapchat Public Profile post */
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  snapchatPost?: boolean;
+
+  /**
+   * Required when snapchatPost is true.
+   * PUBLIC_STORY | SPOTLIGHT | SAVED_STORY
+   */
+  @ValidateIf((o: CreatePostDto) => o.snapchatPost === true)
+  @IsEnum(SNAPCHAT_POST_TYPES)
+  snapchatPostType?: SnapchatPostType;
+
+  /** Snapchat Public Profile id (falls back to /my_profile when omitted) */
+  @ValidateIf((o: CreatePostDto) => o.snapchatPost === true)
+  @IsOptional()
+  @IsString()
+  snapchatProfileId?: string;
 }
