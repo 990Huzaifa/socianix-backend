@@ -8,7 +8,7 @@ import { OAuthTokenResult } from '../connect/types/oauth.types';
 import { SnapchatPostType } from '../posts/dto/create-post.dto';
 import { SocialAccountsService } from './social-accounts.service';
 
-const MARKETING_API_BASE = 'https://adsapi.snapchat.com';
+const MARKETING_API_BASE = 'https://businessapi.snapchat.com';
 const MULTIPART_CHUNK_SIZE = 32 * 1024 * 1024; // 32MB
 
 export type CreateSnapchatPostInput = {
@@ -102,44 +102,66 @@ export class SnapchatService {
   }
 
   /**
-   * Resolve the connected user's Public Profile via
-   * GET /v1/public_profiles/my_profile (requires snapchat-profile-api scope).
+   * Resolve profile id (my_profile), then load public profile metadata via
+   * GET /public/v1/public_profiles/{profile_id}
    * @see https://developers.snap.com/marketing-api/Public-Profile-API/GetStarted
-   * @see https://developers.snap.com/marketing-api/Public-Profile-API/Profiles
    */
-  async getUserProfile(accessToken: string) {
-    const publicProfile = await this.getMyPublicProfile(accessToken);
-    const logoUrls = (publicProfile.logo_urls ?? null) as
-      | Record<string, unknown>
-      | null;
+  async getUserProfile(accessToken: string, profileId?: string | null) {
+    const resolvedProfileId =
+      profileId?.trim() || (await this.resolveMyProfileId(accessToken));
 
-    const displayName =
-      typeof publicProfile.display_name === 'string'
-        ? publicProfile.display_name
-        : null;
-    const username =
-      typeof publicProfile.snap_user_name === 'string'
-        ? publicProfile.snap_user_name
-        : (displayName ?? String(publicProfile.id));
+    const publicProfile = await this.getPublicProfileById(
+      accessToken,
+      resolvedProfileId,
+    );
 
-    const profileImage =
-      (typeof logoUrls?.manage_profile_logo_url === 'string' &&
-        logoUrls.manage_profile_logo_url) ||
-      (typeof logoUrls?.original_logo_url === 'string' &&
-        logoUrls.original_logo_url) ||
-      (typeof logoUrls?.mega_profile_logo_url === 'string' &&
-        logoUrls.mega_profile_logo_url) ||
-      null;
+    return this.mapPublicProfile(publicProfile);
+  }
 
-    return {
-      platformUserId: String(publicProfile.id),
-      username,
-      displayName,
-      profileImage,
-      email:
-        typeof publicProfile.email === 'string' ? publicProfile.email : null,
-      raw: publicProfile,
-    };
+  /**
+   * Public Profile API — public endpoint (no profile-owner OAuth required
+   * beyond a valid Marketing/Public Profile token).
+   * GET /public/v1/public_profiles/{profile_id}
+   */
+  async getPublicProfileById(accessToken: string, profileId: string) {
+    const id = profileId?.trim();
+    if (!id) {
+      throw new BadRequestException('Snapchat profile id is required');
+    }
+
+    const data = await this.requestJson(
+      'GET',
+      `${MARKETING_API_BASE}/public/v1/public_profiles/${encodeURIComponent(id)}`,
+      accessToken,
+    );
+
+    this.assertSnapSuccess(data, 'Failed to fetch Snapchat Public Profile');
+
+    const entries = data.public_profiles as
+      | Array<{
+          sub_request_status?: string;
+          public_profile?: Record<string, unknown>;
+          sub_request_error_reason?: string;
+        }>
+      | undefined;
+
+    const entry = entries?.[0];
+    const subStatus = String(entry?.sub_request_status ?? '').toUpperCase();
+    if (subStatus && subStatus !== 'SUCCESS') {
+      throw new BadRequestException(
+        entry?.sub_request_error_reason?.trim() ||
+          'Failed to fetch Snapchat Public Profile',
+      );
+    }
+
+    const publicProfile = entry?.public_profile;
+    if (!publicProfile || typeof publicProfile.id !== 'string') {
+      throw new BadRequestException(
+        `Snapchat Public Profile "${id}" was not found`,
+      );
+    }
+
+    return publicProfile;
   }
 
   async collectConnectData(accessToken: string) {
@@ -267,16 +289,21 @@ export class SnapchatService {
     });
   }
 
-  async getMyPublicProfile(
-    accessToken: string,
-  ): Promise<Record<string, unknown>> {
+  /**
+   * Authorized endpoint used only to discover the caller's profile id.
+   * GET /v1/public_profiles/my_profile
+   */
+  async resolveMyProfileId(accessToken: string): Promise<string> {
     const data = await this.requestJson(
       'GET',
       `${MARKETING_API_BASE}/v1/public_profiles/my_profile`,
       accessToken,
     );
 
-    this.assertSnapSuccess(data, 'Failed to fetch Snapchat Public Profile');
+    this.assertSnapSuccess(
+      data,
+      'Failed to resolve Snapchat Public Profile id',
+    );
 
     const profile =
       (data.public_profile as Record<string, unknown> | undefined) ??
@@ -292,7 +319,43 @@ export class SnapchatService {
       );
     }
 
-    return profile;
+    return profile.id;
+  }
+
+  private mapPublicProfile(publicProfile: Record<string, unknown>) {
+    const logoUrls = (publicProfile.logo_urls ?? null) as
+      | Record<string, unknown>
+      | null;
+
+    const displayName =
+      typeof publicProfile.display_name === 'string'
+        ? publicProfile.display_name
+        : null;
+    const username =
+      typeof publicProfile.snap_user_name === 'string'
+        ? publicProfile.snap_user_name
+        : (displayName ?? String(publicProfile.id));
+
+    const profileImage =
+      (typeof logoUrls?.manage_profile_logo_url === 'string' &&
+        logoUrls.manage_profile_logo_url) ||
+      (typeof logoUrls?.original_logo_url === 'string' &&
+        logoUrls.original_logo_url) ||
+      (typeof logoUrls?.mega_profile_logo_url === 'string' &&
+        logoUrls.mega_profile_logo_url) ||
+      (typeof logoUrls?.discover_feed_logo_url === 'string' &&
+        logoUrls.discover_feed_logo_url) ||
+      null;
+
+    return {
+      platformUserId: String(publicProfile.id),
+      username,
+      displayName,
+      profileImage,
+      email:
+        typeof publicProfile.email === 'string' ? publicProfile.email : null,
+      raw: publicProfile,
+    };
   }
 
   private async resolveProfileId(
@@ -304,8 +367,7 @@ export class SnapchatService {
       return provided;
     }
 
-    const profile = await this.getMyPublicProfile(accessToken);
-    return String(profile.id);
+    return this.resolveMyProfileId(accessToken);
   }
 
   private pickProfileIdFromMetadata(
