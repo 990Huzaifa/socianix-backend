@@ -102,9 +102,8 @@ export class SnapchatService {
   }
 
   /**
-   * Resolve profile id (my_profile), then load public profile metadata via
-   * GET /public/v1/public_profiles/{profile_id}
-   * @see https://developers.snap.com/marketing-api/Public-Profile-API/GetStarted
+   * After OAuth, access_token → my_profile (profile id) → public profile data.
+   * GET /public/v1/public_profiles/{PROFILE_ID}
    */
   async getUserProfile(accessToken: string, profileId?: string | null) {
     const resolvedProfileId =
@@ -119,9 +118,7 @@ export class SnapchatService {
   }
 
   /**
-   * Public Profile API — public endpoint (no profile-owner OAuth required
-   * beyond a valid Marketing/Public Profile token).
-   * GET /public/v1/public_profiles/{profile_id}
+   * GET https://businessapi.snapchat.com/public/v1/public_profiles/{PROFILE_ID}
    */
   async getPublicProfileById(accessToken: string, profileId: string) {
     const id = profileId?.trim();
