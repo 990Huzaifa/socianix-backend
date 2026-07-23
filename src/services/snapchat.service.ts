@@ -82,43 +82,51 @@ export class SnapchatService {
 
   async getUserProfile(accessToken: string) {
     try {
+      // GraphQL query for Snap Kit User Data
+      const query = {
+        query: `{
+          me {
+            displayName
+            bitmoji {
+              avatar
+            }
+            externalId
+          }
+        }`
+      };
+  
       const { data } = await firstValueFrom(
-        this.httpService.get('https://adsapi.snapchat.com/v1/me', {
-          headers: { Authorization: `Bearer ${accessToken}` },
+        this.httpService.post('https://kit.snapchat.com/v1/me', query, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
           timeout: 15000,
         }),
       );
-
-      const me =
-        (data as { me?: Record<string, unknown> }).me ??
-        (data as Record<string, unknown>);
-      const platformUserId = String(
-        me.id ?? me.snapchat_user_id ?? me.organization_id ?? 'unknown',
-      );
-
+  
+      // Snap Kit API wraps response under data.me
+      const me = data?.data?.me;
+  
+      if (!me) {
+        throw new Error('Snapchat profile data not found in response');
+      }
+  
+      const platformUserId = me.externalId ?? `snapchat:${accessToken.slice(0, 12)}`;
+  
       return {
         platformUserId,
-        username: String(
-          me.username ?? me.display_name ?? me.name ?? platformUserId,
-        ),
-        displayName:
-          typeof me.display_name === 'string'
-            ? me.display_name
-            : typeof me.name === 'string'
-              ? me.name
-              : null,
-        profileImage:
-          typeof me.profile_picture_url === 'string'
-            ? me.profile_picture_url
-            : null,
-        email: typeof me.email === 'string' ? me.email : null,
+        username: me.displayName ?? 'snapchat-user',
+        displayName: me.displayName ?? null,
+        profileImage: me.bitmoji?.avatar ?? null,
+        email: null, // Login Kit does not expose email
         raw: me,
       };
     } catch (error) {
       this.logger.warn(
         `Snapchat profile fetch failed, using fallback identity: ${this.formatError(error)}`,
       );
-
+  
       return {
         platformUserId: `snapchat:${accessToken.slice(0, 12)}`,
         username: 'snapchat-user',
