@@ -61,6 +61,7 @@ export class TikTokService {
       response_type: 'code',
       redirect_uri: this.getRedirectUri(),
       state,
+      prompt: 'consent',
     });
 
     return `https://www.tiktok.com/v2/auth/authorize/?${params.toString()}`;
