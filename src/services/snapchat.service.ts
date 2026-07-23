@@ -49,9 +49,10 @@ export class SnapchatService {
   }
 
   getScopes(): string[] {
+    // Public Profile API requires snapchat-profile-api (see Get Started docs).
     const raw =
       this.configService.get<string>('SNAPCHAT_SCOPES') ??
-      'snapchat-marketing-api snapchat-profile-api';
+      'snapchat-profile-api snapchat-marketing-api';
 
     return raw.split(/[\s,]+/).filter(Boolean);
   }
@@ -100,84 +101,64 @@ export class SnapchatService {
     }
   }
 
+  /**
+   * Resolve the connected user's Public Profile via
+   * GET /v1/public_profiles/my_profile (requires snapchat-profile-api scope).
+   * @see https://developers.snap.com/marketing-api/Public-Profile-API/GetStarted
+   * @see https://developers.snap.com/marketing-api/Public-Profile-API/Profiles
+   */
   async getUserProfile(accessToken: string) {
-    try {
-      const query = {
-        query: `{
-          me {
-            displayName
-            bitmoji {
-              avatar
-            }
-            externalId
-          }
-        }`,
-      };
+    const publicProfile = await this.getMyPublicProfile(accessToken);
+    const logoUrls = (publicProfile.logo_urls ?? null) as
+      | Record<string, unknown>
+      | null;
 
-      const { data } = await firstValueFrom(
-        this.httpService.post('https://kit.snapchat.com/v1/me', query, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          timeout: 15000,
-        }),
-      );
+    const displayName =
+      typeof publicProfile.display_name === 'string'
+        ? publicProfile.display_name
+        : null;
+    const username =
+      typeof publicProfile.snap_user_name === 'string'
+        ? publicProfile.snap_user_name
+        : (displayName ?? String(publicProfile.id));
 
-      const me = data?.data?.me;
+    const profileImage =
+      (typeof logoUrls?.manage_profile_logo_url === 'string' &&
+        logoUrls.manage_profile_logo_url) ||
+      (typeof logoUrls?.original_logo_url === 'string' &&
+        logoUrls.original_logo_url) ||
+      (typeof logoUrls?.mega_profile_logo_url === 'string' &&
+        logoUrls.mega_profile_logo_url) ||
+      null;
 
-      if (!me) {
-        throw new Error('Snapchat profile data not found in response');
-      }
-
-      const platformUserId =
-        me.externalId ?? `snapchat:${accessToken.slice(0, 12)}`;
-
-      return {
-        platformUserId,
-        username: me.displayName ?? 'snapchat-user',
-        displayName: me.displayName ?? null,
-        profileImage: me.bitmoji?.avatar ?? null,
-        email: null,
-        raw: me,
-      };
-    } catch (error) {
-      this.logger.warn(
-        `Snapchat profile fetch failed, using fallback identity: ${this.formatError(error)}`,
-      );
-
-      return {
-        platformUserId: `snapchat:${accessToken.slice(0, 12)}`,
-        username: 'snapchat-user',
-        displayName: null,
-        profileImage: null,
-        email: null,
-        raw: null,
-      };
-    }
+    return {
+      platformUserId: String(publicProfile.id),
+      username,
+      displayName,
+      profileImage,
+      email:
+        typeof publicProfile.email === 'string' ? publicProfile.email : null,
+      raw: publicProfile,
+    };
   }
 
   async collectConnectData(accessToken: string) {
     const profile = await this.getUserProfile(accessToken);
-
-    let publicProfile: Record<string, unknown> | null = null;
-    try {
-      publicProfile = await this.getMyPublicProfile(accessToken);
-    } catch (error) {
-      this.logger.warn(
-        `Snapchat public profile lookup skipped: ${this.formatError(error)}`,
-      );
-    }
+    const publicProfile = profile.raw as Record<string, unknown>;
 
     return {
       profile,
       metadata: {
         provider: 'snapchat',
         products: ['snapchat'],
-        providerProfile: profile.raw,
+        providerProfile: publicProfile,
         publicProfile,
         publicProfileId:
           typeof publicProfile?.id === 'string' ? publicProfile.id : null,
+        organizationId:
+          typeof publicProfile?.organization_id === 'string'
+            ? publicProfile.organization_id
+            : null,
       },
     };
   }
@@ -295,6 +276,8 @@ export class SnapchatService {
       accessToken,
     );
 
+    this.assertSnapSuccess(data, 'Failed to fetch Snapchat Public Profile');
+
     const profile =
       (data.public_profile as Record<string, unknown> | undefined) ??
       (
@@ -305,7 +288,7 @@ export class SnapchatService {
 
     if (!profile || typeof profile.id !== 'string') {
       throw new BadRequestException(
-        'No Snapchat Public Profile found for this account',
+        'No Snapchat Public Profile found for this account. Ensure the user has a Public Profile and the token includes snapchat-profile-api.',
       );
     }
 
