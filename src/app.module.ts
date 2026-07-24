@@ -25,6 +25,7 @@ import {
   ProfileController,
   PusherController,
   SocialAccountsController,
+  WalletController,
   XController,
 } from './controllers';
 import { Admin } from './entities/admin.entity';
@@ -37,6 +38,7 @@ import { SocialAccount } from './entities/social-account.entity';
 import { SocialPlatform } from './entities/social-platform.entity';
 import { User } from './entities/user.entity';
 import { UserAuthProvider } from './entities/user-auth-provider.entity';
+import { Wallet } from './entities/wallet.entity';
 import {
   AdminAuthService,
   AdminLeadsService,
@@ -67,6 +69,7 @@ import {
   UsersService,
   XService,
 } from './services';
+import { WalletService } from './services/wallet.service';
 import { PostsSchedulerService } from './services/posts.scheduler';
 
 @Module({
@@ -94,6 +97,7 @@ import { PostsSchedulerService } from './services/posts.scheduler';
       Post,
       PostMedia,
       PostPlatform,
+      Wallet,
     ]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
@@ -130,6 +134,7 @@ import { PostsSchedulerService } from './services/posts.scheduler';
     PusherController,
     SocialAccountsController,
     XController,
+    WalletController,
   ],
   providers: [
     AppService,
@@ -139,6 +144,7 @@ import { PostsSchedulerService } from './services/posts.scheduler';
     AdminPlatformsService,
     AdminLeadsService,
     UsersService,
+    WalletService,
     UserAuthProviderService,
     SocialTokenVerifierService,
     MailService,

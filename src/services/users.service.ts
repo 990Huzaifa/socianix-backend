@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../entities/user.entity';
+import { WalletService } from './wallet.service';
 
 export type CreateUserData = {
   name: string;
@@ -33,31 +34,44 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    private readonly walletService: WalletService,
   ) {}
 
   async create(data: CreateUserData): Promise<User> {
-    const user = this.usersRepository.create({
-      ...data,
-      isEmailVerified: false,
-    });
-    return this.usersRepository.save(user);
+    const user = await this.usersRepository.save(
+      this.usersRepository.create({
+        ...data,
+        isEmailVerified: false,
+      }),
+    );
+    await this.walletService.createForNewUser(user);
+    return this.findByIdOrFail(user.id);
   }
 
   async createSocialUser(data: CreateSocialUserData): Promise<User> {
-    const user = this.usersRepository.create({
-      ...data,
-      password: null,
-      isEmailVerified: true,
-    });
-    return this.usersRepository.save(user);
+    const user = await this.usersRepository.save(
+      this.usersRepository.create({
+        ...data,
+        password: null,
+        isEmailVerified: true,
+      }),
+    );
+    await this.walletService.createForNewUser(user);
+    return this.findByIdOrFail(user.id);
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.usersRepository.findOne({ where: { email } });
+    return this.usersRepository.findOne({
+      where: { email },
+      relations: { wallet: true },
+    });
   }
 
   async findById(id: string): Promise<User | null> {
-    return this.usersRepository.findOne({ where: { id } });
+    return this.usersRepository.findOne({
+      where: { id },
+      relations: { wallet: true },
+    });
   }
 
   async findByIdOrFail(id: string): Promise<User> {

@@ -113,6 +113,7 @@ export class SocialAccountsService {
       icon: platform.icon ?? null,
       logo: platform.logo ?? null,
       status: platform.status,
+      creditCost: platform.creditCost ?? 0,
       connected: connectedPlatformIds.has(platform.id),
       createdAt: platform.createdAt,
       updatedAt: platform.updatedAt,

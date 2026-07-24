@@ -2,8 +2,11 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
   OneToMany,
+  OneToOne,
   PrimaryGeneratedColumn,
+  RelationId,
   UpdateDateColumn,
 } from 'typeorm';
 import { SocialAccount } from './social-account.entity';
@@ -11,6 +14,7 @@ import { UserAuthProvider } from './user-auth-provider.entity';
 import { Post } from './post.entity';
 import { Activity } from './activity.entity';
 import { PasswordResetToken } from './password-reset-token.entity';
+import { Wallet } from './wallet.entity';
 
 @Entity('users')
 export class User {
@@ -55,6 +59,13 @@ export class User {
 
   @OneToMany(() => UserAuthProvider, (auth) => auth.user)
   authProviders: UserAuthProvider[];
+
+  @OneToOne(() => Wallet, (wallet) => wallet.user)
+  @JoinColumn({ name: 'walletId' })
+  wallet: Wallet;
+
+  @RelationId((user: User) => user.wallet)
+  walletId?: string | null;
 
   @OneToMany(() => Post, (post) => post.user)
   posts: Post[];

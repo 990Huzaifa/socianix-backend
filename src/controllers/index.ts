@@ -14,4 +14,5 @@ export { PostsController } from './posts.controller';
 export { ProfileController } from './profile.controller';
 export { PusherController } from './pusher.controller';
 export { SocialAccountsController } from './social-accounts.controller';
+export { WalletController } from './wallet.controller';
 export { XController } from './x.controller';

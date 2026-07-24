@@ -25,4 +25,5 @@ export { UserAuthProviderService } from './user-auth-provider.service';
 export { ThreadsService } from './threads.service';
 export { TikTokService } from './tiktok.service';
 export { UsersService } from './users.service';
+export { WalletService } from './wallet.service';
 export { XService } from './x.service';

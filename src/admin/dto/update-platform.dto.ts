@@ -1,9 +1,13 @@
+import { Type } from 'class-transformer';
 import {
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 import { SocialPlatformStatus } from '../../entities/social-platform.entity';
@@ -42,4 +46,11 @@ export class UpdatePlatformDto {
   @IsOptional()
   @IsEnum(SocialPlatformStatus)
   status?: SocialPlatformStatus;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1_000_000)
+  creditCost?: number;
 }

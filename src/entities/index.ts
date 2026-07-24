@@ -24,3 +24,4 @@ export {
   UserAuthProvider,
   SocialAuthProvider,
 } from './user-auth-provider.entity';
+export { Wallet } from './wallet.entity';

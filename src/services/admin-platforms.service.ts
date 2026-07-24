@@ -19,12 +19,19 @@ export class AdminPlatformsService {
     private readonly platformsRepository: Repository<SocialPlatform>,
   ) {}
 
-  async findAll(options: { page?: number; limit?: number } = {}) {
+  async findAll(
+    options: {
+      page?: number;
+      limit?: number;
+      status?: SocialPlatformStatus;
+    } = {},
+  ) {
     const page = Math.max(1, options.page ?? 1);
     const limit = Math.min(100, Math.max(1, options.limit ?? 20));
     const skip = (page - 1) * limit;
 
     const [items, total] = await this.platformsRepository.findAndCount({
+      where: options.status ? { status: options.status } : undefined,
       order: { createdAt: 'DESC' },
       skip,
       take: limit,
@@ -63,6 +70,7 @@ export class AdminPlatformsService {
       icon: dto.icon ?? null,
       logo: dto.logo ?? null,
       status: dto.status ?? SocialPlatformStatus.ACTIVE,
+      creditCost: dto.creditCost ?? 0,
     });
 
     return this.platformsRepository.save(platform);
@@ -87,6 +95,7 @@ export class AdminPlatformsService {
     if (dto.icon !== undefined) platform.icon = dto.icon;
     if (dto.logo !== undefined) platform.logo = dto.logo;
     if (dto.status !== undefined) platform.status = dto.status;
+    if (dto.creditCost !== undefined) platform.creditCost = dto.creditCost;
 
     return this.platformsRepository.save(platform);
   }

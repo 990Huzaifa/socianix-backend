@@ -44,6 +44,9 @@ export class SocialPlatform {
   @OneToMany(() => SocialAccount, (account) => account.platform)
   accounts: SocialAccount[];
 
+  @Column({ type: 'integer', default: 0 })
+  creditCost: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

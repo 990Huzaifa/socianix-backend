@@ -36,6 +36,13 @@ export class UserResponseDto {
   isEmailVerified: boolean;
 
   @Expose()
+  wallet?: {
+    id: string;
+    credits: number;
+    freeCredits: number;
+  } | null;
+
+  @Expose()
   createdAt: Date;
 
   @Expose()

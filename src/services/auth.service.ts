@@ -286,8 +286,20 @@ export class AuthService {
   }
 
   private toUserResponse(user: User): UserResponseDto {
-    return plainToInstance(UserResponseDto, user, {
+    const response = plainToInstance(UserResponseDto, user, {
       excludeExtraneousValues: true,
     });
+
+    if (user.wallet) {
+      response.wallet = {
+        id: user.wallet.id,
+        credits: user.wallet.credits,
+        freeCredits: user.wallet.freeCredits,
+      };
+    } else {
+      response.wallet = null;
+    }
+
+    return response;
   }
 }
