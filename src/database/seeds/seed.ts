@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { buildDatabaseOptions } from '../../config/database.config';
 import { seedAdmins } from './seed-admins';
 import { seedSocialPlatforms } from './seed-social-platforms';
+import { seedWallets } from './seed-wallets';
 
 loadEnv();
 
@@ -13,10 +14,13 @@ async function seed(): Promise<void> {
 
   try {
     console.log('--- Seeding admins ---');
-    await seedAdmins(dataSource);
+    // await seedAdmins(dataSource);
 
     console.log('\n--- Seeding social platforms ---');
-    await seedSocialPlatforms(dataSource);
+    // await seedSocialPlatforms(dataSource);
+
+    console.log('\n--- Seeding wallets for users without one ---');
+    await seedWallets(dataSource);
 
     console.log('\nAll seeds complete.');
   } finally {

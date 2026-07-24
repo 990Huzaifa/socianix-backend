@@ -27,6 +27,7 @@
     "seed": "ts-node -r tsconfig-paths/register -P tsconfig.typeorm.json src/database/seeds/seed.ts",
     "seed:admins": "ts-node -r tsconfig-paths/register -P tsconfig.typeorm.json src/database/seeds/seed-admins.ts",
     "seed:platforms": "ts-node -r tsconfig-paths/register -P tsconfig.typeorm.json src/database/seeds/seed-social-platforms.ts",
+    "seed:wallets": "ts-node -r tsconfig-paths/register -P tsconfig.typeorm.json src/database/seeds/seed-wallets.ts",
 
     "cron:refresh-google": "node scripts/refresh-google-tokens.js"
   },
