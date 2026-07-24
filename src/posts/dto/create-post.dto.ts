@@ -190,6 +190,12 @@ export class CreatePostDto {
   @IsBoolean()
   tiktokPost?: boolean;
 
+  /** X (Twitter) post */
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  xPost?: boolean;
+
   /** Snapchat Public Profile post */
   @IsOptional()
   @Transform(({ value }) => toBoolean(value))
