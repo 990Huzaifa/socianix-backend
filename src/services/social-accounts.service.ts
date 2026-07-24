@@ -16,7 +16,7 @@ import {
   SocialAccount,
   SocialAccountStatus,
 } from '../entities/social-account.entity';
-import { SocialPlatform } from '../entities/social-platform.entity';
+import { SocialPlatform, SocialPlatformStatus } from '../entities/social-platform.entity';
 import { SocialTokenCryptoService } from './social-token-crypto.service';
 
 @Injectable()
@@ -86,10 +86,14 @@ export class SocialAccountsService {
   }
 
   /**
-   * List all social platforms with the user's connection status.
+   * List all social platforms from DB with the user's connection status.
    */
-  async listPlatforms(userId: string) {
+  async listPlatforms(
+    userId: string,
+    options?: { status?: SocialPlatformStatus },
+  ) {
     const platforms = await this.socialPlatformsRepository.find({
+      where: options?.status ? { status: options.status } : undefined,
       order: { name: 'ASC' },
     });
 
@@ -110,6 +114,8 @@ export class SocialAccountsService {
       logo: platform.logo ?? null,
       status: platform.status,
       connected: connectedPlatformIds.has(platform.id),
+      createdAt: platform.createdAt,
+      updatedAt: platform.updatedAt,
     }));
 
     return {
